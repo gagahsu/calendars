@@ -12,6 +12,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: '行事曆助理',
   },
+  other: {
+    // Next only emits the unprefixed `mobile-web-app-capable`, but iOS Safari
+    // still keys standalone-mode installs off the legacy apple- prefixed tag.
+    'apple-mobile-web-app-capable': 'yes',
+  },
   icons: {
     icon: [
       { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
