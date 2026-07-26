@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>離線 · 行事曆助理</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #0b0f1a;
+        --card: #141a29;
+        --text: #e8ecf6;
+        --muted: #93a0bd;
+        --accent: #6d8cff;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f5f7fc;
+          --card: #fff;
+          --text: #1a2033;
+          --muted: #5c6784;
+          --accent: #3f5fd8;
+        }
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, 'Noto Sans TC', 'PingFang TC', sans-serif;
+        text-align: center;
+      }
+      .box {
+        background: var(--card);
+        border-radius: 16px;
+        padding: 28px 22px;
+        max-width: 340px;
+      }
+      h1 {
+        font-size: 1.1rem;
+        margin: 12px 0 6px;
+      }
+      p {
+        font-size: 0.88rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      button {
+        margin-top: 18px;
+        width: 100%;
+        padding: 11px;
+        border: none;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div style="font-size: 2.6rem" aria-hidden="true">📡</div>
+      <h1>目前沒有網路連線</h1>
+      <p>
+        行事曆與帳單資料存在雲端，需要連線才能讀取。<br />
+        急著記一筆的話，可以先傳 LINE 訊息給機器人，恢復連線後就會出現在這裡。
+      </p>
+      <button onclick="location.reload()">重新連線</button>
+    </div>
+  </body>
+</html>
