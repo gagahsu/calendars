@@ -2,16 +2,35 @@ import { prisma, toNum } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { handle } from '@/lib/api';
 import { billStatusText, upcomingBills } from '@/lib/billing';
+import { periodRange } from '@/lib/date';
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/statements?unpaid=1&withinDays=45 */
+/** GET /api/statements?unpaid=1&withinDays=45 | ?dueMonth=YYYY-MM | ?period=YYYY-MM */
 export async function GET(request: Request) {
   const unauthorized = await requireAuth();
   if (unauthorized) return unauthorized;
 
   return handle(async () => {
     const params = new URL(request.url).searchParams;
+
+    const dueMonth = params.get('dueMonth');
+    if (dueMonth) {
+      const { start, end } = periodRange(dueMonth);
+      const statements = await prisma.statement.findMany({
+        where: { dueAt: { gte: start, lt: end } },
+        include: { card: { select: { name: true, color: true } } },
+        orderBy: [{ dueAt: 'asc' }],
+      });
+      return {
+        statements: statements.map((statement) => ({
+          ...statement,
+          amount: toNum(statement.amount),
+          minimum: toNum(statement.minimum),
+          paidAmount: toNum(statement.paidAmount),
+        })),
+      };
+    }
 
     if (params.get('unpaid') === '1') {
       const withinDays = Number(params.get('withinDays') ?? '45');

@@ -39,6 +39,11 @@ export function money(value: number | null | undefined): string {
   return `NT$${Math.round(value).toLocaleString('en-US')}`;
 }
 
+/** Undo money()'s thousands separators so typed/pasted amounts like "93,633" parse. */
+export function parseAmount(input: string): number {
+  return Number(input.replace(/,/g, '').trim());
+}
+
 const TZ_OFFSET_MS = 8 * 60 * 60_000;
 
 /** `YYYY-MM-DD` in Taipei time — matches the server's `dateKey`. */

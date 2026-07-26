@@ -8,6 +8,7 @@ import {
   del,
   money,
   monthKey,
+  parseAmount,
   post,
   shiftMonth,
   toIso,
@@ -76,7 +77,7 @@ export default function ExpensesView() {
 
   async function add(formEvent: React.FormEvent) {
     formEvent.preventDefault();
-    const value = Number(amount);
+    const value = parseAmount(amount);
     if (!Number.isFinite(value) || value <= 0) {
       setError('請輸入正確的金額');
       return;

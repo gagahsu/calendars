@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, dayLabel, daysUntil, del, money, patch, post } from '@/lib/client';
+import { api, dayLabel, daysUntil, del, money, monthKey, parseAmount, patch, post } from '@/lib/client';
 import type { ApiBill, ApiCard, ApiStatement } from '@/lib/types';
 
 export default function CardsView() {
   const [cards, setCards] = useState<ApiCard[]>([]);
   const [bills, setBills] = useState<ApiBill[]>([]);
+  const [monthStatements, setMonthStatements] = useState<ApiStatement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -16,12 +17,16 @@ export default function CardsView() {
     setLoading(true);
     setError(null);
     try {
-      const [cardData, billData] = await Promise.all([
+      const [cardData, billData, monthData] = await Promise.all([
         api<{ cards: ApiCard[] }>('/api/cards'),
         api<{ bills: ApiBill[] }>('/api/statements?unpaid=1&withinDays=60'),
+        // Bills whose due date falls in this calendar month, paid or not —
+        // "how much do I owe this month, how much of that is already handled."
+        api<{ statements: ApiStatement[] }>(`/api/statements?dueMonth=${monthKey(new Date())}`),
       ]);
       setCards(cardData.cards);
       setBills(billData.bills);
+      setMonthStatements(monthData.statements);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '載入失敗');
     } finally {
@@ -62,6 +67,13 @@ export default function CardsView() {
   );
   const totalDue = nearestPerCard.reduce((sum, bill) => sum + (bill.amount ?? 0), 0);
 
+  const monthUnpaid = monthStatements
+    .filter((s) => !s.paid)
+    .reduce((sum, s) => sum + (s.amount ?? 0), 0);
+  const monthPaid = monthStatements
+    .filter((s) => s.paid)
+    .reduce((sum, s) => sum + (s.paidAmount ?? s.amount ?? 0), 0);
+
   return (
     <main>
       <header className="topbar">
@@ -80,6 +92,26 @@ export default function CardsView() {
 
       {error && <div className="alert danger">{error}</div>}
       {loading && <div className="empty">載入中…</div>}
+
+      {!loading && monthStatements.length > 0 && (
+        <div className="card">
+          <h2>本月繳款狀況</h2>
+          <div className="stat-row">
+            <div className="stat">
+              <div className="k">本月未繳</div>
+              <div className="v">{money(monthUnpaid)}</div>
+            </div>
+            <div className="stat">
+              <div className="k">本月已繳</div>
+              <div className="v">{money(monthPaid)}</div>
+            </div>
+            <div className="stat">
+              <div className="k">本月合計</div>
+              <div className="v">{money(monthUnpaid + monthPaid)}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!loading && nearestPerCard.length > 0 && (
         <div className="card">
@@ -312,7 +344,7 @@ function StatementRow({
             className="btn sm primary"
             disabled={busy}
             onClick={() => {
-              const amount = Number(draft);
+              const amount = parseAmount(draft);
               if (!Number.isFinite(amount) || amount < 0) return;
               void run(() => onSaveAmount(statement, amount));
             }}
