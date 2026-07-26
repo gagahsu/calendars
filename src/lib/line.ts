@@ -7,12 +7,12 @@ export type LineTextMessage = { type: 'text'; text: string; quickReply?: QuickRe
 export type LineFlexMessage = { type: 'flex'; altText: string; contents: unknown };
 export type LineMessage = LineTextMessage | LineFlexMessage;
 
-type QuickReply = {
-  items: Array<{
-    type: 'action';
-    action: { type: 'message'; label: string; text: string };
-  }>;
+type QuickReplyItem = {
+  type: 'action';
+  action: { type: 'message'; label: string; text: string } | { type: 'uri'; label: string; uri: string };
 };
+
+type QuickReply = { items: QuickReplyItem[] };
 
 /**
  * LINE signs every webhook body with the channel secret. Compare against the
@@ -85,13 +85,25 @@ export function text(body: string, quickReplyLabels?: string[]): LineTextMessage
     // LINE truncates at 5000 characters.
     text: body.length > 4900 ? `${body.slice(0, 4900)}…` : body,
   };
+
+  const items: QuickReplyItem[] = [];
+  // A tap-through to the web app, so recording something fiddlier than a
+  // one-line command (bulk edits, browsing history) doesn't need a command
+  // to be remembered at all.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) {
+    items.push({ type: 'action', action: { type: 'uri', label: '🌐 開啟網站', uri: appUrl } });
+  }
   if (quickReplyLabels?.length) {
-    message.quickReply = {
-      items: quickReplyLabels.slice(0, 13).map((label) => ({
-        type: 'action',
-        action: { type: 'message', label: label.slice(0, 20), text: label },
+    items.push(
+      ...quickReplyLabels.map((label) => ({
+        type: 'action' as const,
+        action: { type: 'message' as const, label: label.slice(0, 20), text: label },
       })),
-    };
+    );
+  }
+  if (items.length) {
+    message.quickReply = { items: items.slice(0, 13) };
   }
   return message;
 }
