@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { post } from '@/lib/client';
 
 export default function LoginForm() {
+  const router = useRouter();
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,8 +16,12 @@ export default function LoginForm() {
     setError(null);
     try {
       await post('/api/auth/login', { password });
-      // Full navigation so the server layout re-reads the fresh cookie.
-      window.location.href = '/';
+      // Client-side navigation, not window.location.href: a hard top-level
+      // navigation kicks iOS home-screen installs out of standalone display
+      // back into a regular Safari tab. router.refresh() still re-runs the
+      // server layout's auth check against the fresh cookie.
+      router.push('/');
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '登入失敗');
       setBusy(false);
