@@ -287,6 +287,16 @@ function StatementRow({
           ) : null}
         </div>
         <div className="meta">繳款日 {dayLabel(statement.dueAt)}</div>
+        {statement.trackedSpend > 0 && statement.trackedSpend !== statement.amount && (
+          <button
+            type="button"
+            className="tiny faint"
+            style={{ background: 'none', border: 0, padding: 0, textDecoration: 'underline', cursor: 'pointer' }}
+            onClick={() => setDraft(String(statement.trackedSpend))}
+          >
+            已記消費 {money(statement.trackedSpend)}（點擊帶入，帳單可能還有利息或手續費，記得核對）
+          </button>
+        )}
       </div>
       <div className="row" style={{ gap: 4, flex: '0 0 auto' }}>
         <input

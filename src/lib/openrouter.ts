@@ -12,6 +12,10 @@ const BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v
 const ENDPOINT = `${BASE_URL.replace(/\/$/, '')}/chat/completions`;
 
 const DEFAULT_MODELS = [
+  // OpenRouter's own router: picks a free model at random and adapts to the
+  // request (e.g. tool use, images). Tried first; the pinned models below
+  // are the fallback if the router endpoint itself has an issue.
+  'openrouter/free',
   'deepseek/deepseek-chat-v3-0324:free',
   'meta-llama/llama-3.3-70b-instruct:free',
   'google/gemma-3-27b-it:free',

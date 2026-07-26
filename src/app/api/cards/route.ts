@@ -1,7 +1,8 @@
 import { prisma, toNum } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { bool, handle, int, intArray, readJson, str, badRequest } from '@/lib/api';
-import { syncStatements } from '@/lib/billing';
+import { statementCloseDate, syncStatements } from '@/lib/billing';
+import { addMonths } from '@/lib/date';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,17 +22,40 @@ export async function GET() {
     });
 
     return {
-      cards: cards.map((card) => ({
-        ...card,
-        statements: card.statements.map((statement) => ({
-          ...statement,
-          amount: toNum(statement.amount),
-          minimum: toNum(statement.minimum),
-          paidAmount: toNum(statement.paidAmount),
+      cards: await Promise.all(
+        cards.map(async (card) => ({
+          ...card,
+          statements: await Promise.all(
+            card.statements.map(async (statement) => ({
+              ...statement,
+              amount: toNum(statement.amount),
+              minimum: toNum(statement.minimum),
+              paidAmount: toNum(statement.paidAmount),
+              // What the user has actually logged for this billing cycle, so
+              // the web UI can offer it as a starting point — not a silent
+              // auto-fill, since a statement also includes fees/interest/
+              // carryover the user never records as an "expense".
+              trackedSpend: await trackedSpendFor(card.id, card, statement.period),
+            })),
+          ),
         })),
-      })),
+      ),
     };
   });
+}
+
+async function trackedSpendFor(
+  cardId: string,
+  card: { statementDay: number; dueDay: number; dueNextMonth: boolean },
+  period: string,
+): Promise<number> {
+  const end = statementCloseDate(card, period);
+  const start = statementCloseDate(card, addMonths(period, -1));
+  const sum = await prisma.expense.aggregate({
+    where: { cardId, spentAt: { gt: start, lte: end } },
+    _sum: { amount: true },
+  });
+  return toNum(sum._sum.amount) ?? 0;
 }
 
 export async function POST(request: Request) {

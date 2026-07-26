@@ -130,13 +130,13 @@ SESSION_SECRET="上面產生的 hex 字串"
 ### 5. 設定 AI 分析（可選但建議）
 
 1. 到 [openrouter.ai/keys](https://openrouter.ai/keys) 申請免費 API key → `OPENROUTER_API_KEY`。
-2. `OPENROUTER_MODELS` 用逗號分隔，會依序嘗試，前面的被限流就換下一個：
+2. `OPENROUTER_MODELS` 用逗號分隔，會依序嘗試，前面的被限流就換下一個。預設第一個是 `openrouter/free`——OpenRouter 自己的路由端點，會在免費模型池裡自動挑一個可用的，不用自己追蹤哪些模型還在免費：
 
 ```
-OPENROUTER_MODELS="deepseek/deepseek-chat-v3-0324:free,meta-llama/llama-3.3-70b-instruct:free,google/gemma-3-27b-it:free"
+OPENROUTER_MODELS="openrouter/free,deepseek/deepseek-chat-v3-0324:free,meta-llama/llama-3.3-70b-instruct:free,google/gemma-3-27b-it:free"
 ```
 
-免費模型的可用清單會變動，可到 OpenRouter 網站上篩選 `:free` 後更新這個變數。
+`openrouter/free` 後面留的是備援：萬一路由端點本身出狀況，才會退回逐一嘗試固定模型。免費模型的可用清單會變動，可到 OpenRouter 網站上篩選 `:free` 後更新備援清單。
 若想改用其他 OpenAI 相容服務，設定 `OPENROUTER_BASE_URL` 即可。
 
 沒有設定 key 也能用，只是分析會退回規則式版本。

@@ -34,6 +34,8 @@ export type ApiStatement = {
   paid: boolean;
   paidAt: string | null;
   paidAmount: number | null;
+  /** Sum of this card's logged expenses within the statement's billing cycle. */
+  trackedSpend: number;
 };
 
 export type ApiCard = {
