@@ -1,0 +1,138 @@
+// Prisma schema for the calendar / credit-card reminder app.
+// Single-user deployment: there is no User table, the whole DB belongs to the owner.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A calendar entry. Also used for credit-card due dates that are
+/// materialised onto the calendar (see Statement.eventId).
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  note      String?
+  location  String?
+  startsAt  DateTime
+  endsAt    DateTime?
+  allDay    Boolean  @default(false)
+  category  String   @default("general") // general | bill | work | personal | health
+  /// Minutes before startsAt to push a LINE reminder. Empty = no reminder.
+  remindMinutes Int[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statement Statement?
+
+  @@index([startsAt])
+}
+
+model Todo {
+  id        String    @id @default(cuid())
+  title     String
+  note      String?
+  dueAt     DateTime?
+  priority  Int       @default(2) // 1 high, 2 normal, 3 low
+  done      Boolean   @default(false)
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([done, dueAt])
+}
+
+/// A credit card whose payment deadline we track.
+model Card {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g. 國泰 CUBE
+  issuer    String?
+  last4     String?
+  /// Day of month the statement closes (1-31, clamped to month length).
+  statementDay Int
+  /// Day of month the payment is due (1-31, clamped to month length).
+  dueDay    Int
+  /// Due day falls in the month *after* the statement closes.
+  dueNextMonth Boolean @default(true)
+  autoPay   Boolean  @default(false)
+  color     String   @default("#6366f1")
+  active    Boolean  @default(true)
+  /// Days before the due date to push reminders, e.g. [7,3,1,0].
+  remindDaysBefore Int[] @default([7, 3, 1, 0])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statements Statement[]
+  expenses   Expense[]
+}
+
+/// One monthly bill for a card. `period` is the YYYY-MM the statement closed in.
+model Statement {
+  id       String   @id @default(cuid())
+  cardId   String
+  card     Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  period   String   // YYYY-MM
+  amount   Decimal? @db.Decimal(12, 2)
+  minimum  Decimal? @db.Decimal(12, 2)
+  dueAt    DateTime
+  paid     Boolean  @default(false)
+  paidAt   DateTime?
+  paidAmount Decimal? @db.Decimal(12, 2)
+  /// Calendar event mirroring this due date, so bills show up on the calendar.
+  eventId  String?  @unique
+  event    Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cardId, period])
+  @@index([dueAt, paid])
+}
+
+/// A single spend record, used for the monthly AI analysis.
+model Expense {
+  id       String   @id @default(cuid())
+  amount   Decimal  @db.Decimal(12, 2)
+  category String   @default("other")
+  merchant String?
+  note     String?
+  spentAt  DateTime
+  cardId   String?
+  card     Card?    @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  source   String   @default("web") // web | line
+  createdAt DateTime @default(now())
+
+  @@index([spentAt])
+  @@index([category])
+}
+
+/// Cached monthly AI analysis so we do not re-bill the model on every page view.
+model Insight {
+  id        String   @id @default(cuid())
+  period    String   @unique // YYYY-MM
+  model     String
+  summary   String
+  /// Structured payload: totals, per-category breakdown, tips, deltas.
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Guards against pushing the same reminder twice. `key` encodes what was sent.
+model ReminderLog {
+  id       String   @id @default(cuid())
+  key      String   @unique
+  channel  String   @default("line")
+  sentAt   DateTime @default(now())
+
+  @@index([sentAt])
+}
+
+/// Generic key/value settings (LINE user id binding, monthly budget, ...).
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
