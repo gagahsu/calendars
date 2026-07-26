@@ -12,6 +12,7 @@ export const CATEGORIES = [
   { key: 'education', label: '學習進修', emoji: '📚' },
   { key: 'social', label: '人情紅包', emoji: '🎁' },
   { key: 'insurance', label: '保險稅務', emoji: '📄' },
+  { key: 'investment', label: '投資', emoji: '📈' },
   { key: 'other', label: '其他', emoji: '💠' },
 ] as const;
 
@@ -48,6 +49,7 @@ const KEYWORDS: Array<[CategoryKey, string[]]> = [
   ['education', ['書', '課程', '學費', '補習', '證照', '考試', '教材', 'udemy']],
   ['social', ['紅包', '禮物', '包禮', '婚禮', '孝親', '捐款', '白包']],
   ['insurance', ['保費', '保險', '稅', '牌照稅', '燃料費', '所得稅', '勞保', '健保']],
+  ['investment', ['證券', '投顧', '投資', '股票', '基金', '期貨', '定期定額', 'etf']],
 ];
 
 export function guessCategory(text: string): CategoryKey {
