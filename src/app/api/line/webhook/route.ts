@@ -13,11 +13,13 @@ import {
   cardListText,
   dayAgendaText,
   expenseReceiptText,
+  money,
   openTodos,
   summaryText,
   todoListText,
   weekAgendaText,
 } from '@/lib/agenda';
+import { categoryEmoji } from '@/lib/categories';
 import {
   findCardByHint,
   refreshStatementEvent,
@@ -113,9 +115,82 @@ async function handleEvent(event: LineEvent): Promise<void> {
   }
 
   const now = new Date();
-  const command = parseCommand(body, now);
-  const reply = await runCommand(command, now);
+  // Pasting several "記 ..." lines at once (e.g. copying a statement) is a
+  // real workflow — treat multiple non-empty lines as one command per line
+  // instead of failing the whole message as unparseable.
+  const lines = body.split('\n').map((line) => line.trim()).filter(Boolean);
+  const reply =
+    lines.length > 1 ? await runBatch(lines, now) : await runCommand(parseCommand(body, now), now);
   await replyMessage(event.replyToken, [text(reply, DEFAULT_QUICK_REPLIES)]);
+}
+
+async function runBatch(lines: string[], now: Date): Promise<string> {
+  const results: string[] = [];
+  let expenseTotal = 0;
+  let expenseCount = 0;
+
+  for (const line of lines) {
+    const command = parseCommand(line, now);
+    if (command.kind === 'unknown') {
+      results.push(`❓ 看不懂：${line}`);
+      continue;
+    }
+    if (command.kind !== 'expense') {
+      // Non-expense commands still run for real, just summarised to one line.
+      const reply = await runCommand(command, now);
+      results.push(reply.split('\n')[0]);
+      continue;
+    }
+
+    const { cardName, cardMissing } = await recordExpense(command);
+    expenseTotal += command.amount;
+    expenseCount += 1;
+    const warn = cardMissing ? ` ⚠️找不到卡片「${command.cardHint}」` : '';
+    results.push(
+      [
+        `${categoryEmoji(command.category)} ${money(command.amount)}`,
+        command.merchant,
+        formatShortZh(command.spentAt),
+        cardName,
+      ]
+        .filter(Boolean)
+        .join(' ｜ ') + warn,
+    );
+  }
+
+  const header =
+    expenseCount > 0
+      ? `📋 批次處理 ${lines.length} 行，${expenseCount} 筆消費合計 ${money(expenseTotal)}`
+      : `📋 批次處理 ${lines.length} 行`;
+  return [header, '', ...results].join('\n');
+}
+
+/** Shared by the single-command and batch paths: look up the card and write the row. */
+async function recordExpense(
+  command: Extract<Command, { kind: 'expense' }>,
+): Promise<{ cardId: string | null; cardName: string | null; cardMissing: boolean }> {
+  let cardId: string | null = null;
+  let cardName: string | null = null;
+  if (command.cardHint) {
+    const card = await findCardByHint(command.cardHint);
+    if (card) {
+      cardId = card.id;
+      cardName = card.name;
+    }
+  }
+
+  await prisma.expense.create({
+    data: {
+      amount: command.amount,
+      category: command.category,
+      merchant: command.merchant,
+      spentAt: command.spentAt,
+      cardId,
+      source: 'line',
+    },
+  });
+
+  return { cardId, cardName, cardMissing: !!command.cardHint && !cardId };
 }
 
 async function runCommand(command: Command, now: Date): Promise<string> {
@@ -142,26 +217,7 @@ async function runCommand(command: Command, now: Date): Promise<string> {
       return todoListText(now);
 
     case 'expense': {
-      let cardId: string | null = null;
-      let cardName: string | null = null;
-      if (command.cardHint) {
-        const card = await findCardByHint(command.cardHint);
-        if (card) {
-          cardId = card.id;
-          cardName = card.name;
-        }
-      }
-
-      await prisma.expense.create({
-        data: {
-          amount: command.amount,
-          category: command.category,
-          merchant: command.merchant,
-          spentAt: command.spentAt,
-          cardId,
-          source: 'line',
-        },
-      });
+      const { cardName, cardMissing } = await recordExpense(command);
 
       const { start, end } = periodRange(periodKey(command.spentAt));
       const monthly = await prisma.expense.aggregate({
@@ -177,8 +233,7 @@ async function runCommand(command: Command, now: Date): Promise<string> {
         cardName,
         monthTotal: toNum(monthly._sum.amount) ?? 0,
       });
-      const warning =
-        command.cardHint && !cardId ? `\n\n⚠️ 找不到卡片「${command.cardHint}」，這筆先記為現金。` : '';
+      const warning = cardMissing ? `\n\n⚠️ 找不到卡片「${command.cardHint}」，這筆先記為現金。` : '';
       return receipt + warning;
     }
 

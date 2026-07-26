@@ -17,7 +17,7 @@ import { categoryEmoji, categoryLabel } from './categories';
  * Keeping them here means a reminder and a `今天` query read identically.
  */
 
-const money = (value: number) => `NT$${Math.round(value).toLocaleString('en-US')}`;
+export const money = (value: number) => `NT$${Math.round(value).toLocaleString('en-US')}`;
 
 export async function dayAgendaText(day: Date): Promise<string> {
   const start = startOfTaipeiDay(day);
