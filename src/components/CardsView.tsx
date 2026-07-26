@@ -49,7 +49,18 @@ export default function CardsView() {
     await load();
   }
 
-  const totalDue = bills.reduce((sum, bill) => sum + (bill.amount ?? 0), 0);
+  // A card can have several future statements queued up at once; only the
+  // soonest due one per card is actionable, so that's all the countdown
+  // list needs to show. `bills` is already sorted by dueAt ascending.
+  const nearestPerCard = Array.from(
+    bills
+      .reduce((map, bill) => {
+        if (!map.has(bill.cardId)) map.set(bill.cardId, bill);
+        return map;
+      }, new Map<string, (typeof bills)[number]>())
+      .values(),
+  );
+  const totalDue = nearestPerCard.reduce((sum, bill) => sum + (bill.amount ?? 0), 0);
 
   return (
     <main>
@@ -57,7 +68,9 @@ export default function CardsView() {
         <h1>
           信用卡
           <span className="sub">
-            {bills.length > 0 ? `${bills.length} 筆未繳・合計 ${money(totalDue)}` : '目前沒有未繳帳單'}
+            {nearestPerCard.length > 0
+              ? `${nearestPerCard.length} 筆未繳・合計 ${money(totalDue)}`
+              : '目前沒有未繳帳單'}
           </span>
         </h1>
         <button className="btn sm primary" onClick={() => setAdding(true)}>
@@ -68,11 +81,11 @@ export default function CardsView() {
       {error && <div className="alert danger">{error}</div>}
       {loading && <div className="empty">載入中…</div>}
 
-      {!loading && bills.length > 0 && (
+      {!loading && nearestPerCard.length > 0 && (
         <div className="card">
           <h2>⏰ 繳費倒數</h2>
           <div className="stack">
-            {bills.map((bill) => {
+            {nearestPerCard.map((bill) => {
               const tone = bill.overdue ? 'danger' : bill.daysLeft <= 3 ? 'warn' : 'ok';
               return (
                 <div className="row spread" key={bill.id}>
