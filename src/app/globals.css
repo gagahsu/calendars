@@ -406,8 +406,8 @@ label.field {
   min-height: 62px;
   padding: 4px 3px 3px;
   border-radius: 10px;
-  border: 1px solid transparent;
-  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -417,6 +417,7 @@ label.field {
 
 .cal-day[data-outside='true'] {
   background: transparent;
+  border-color: transparent;
   opacity: 0.4;
 }
 
