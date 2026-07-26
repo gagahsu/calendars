@@ -108,7 +108,7 @@ export function text(body: string, quickReplyLabels?: string[]): LineTextMessage
   return message;
 }
 
-export const DEFAULT_QUICK_REPLIES = ['今天', '本週', '帳單', '待辦', '分析', '說明'];
+export const DEFAULT_QUICK_REPLIES = ['今天', '本週', '帳單', '待辦', '分析', '分類', '說明'];
 
 /** Only the owner's LINE account may drive the bot. */
 export function isOwner(userId: string | undefined): boolean {

@@ -33,6 +33,16 @@ export function isCategoryKey(key: string): key is CategoryKey {
   return BY_KEY.has(key);
 }
 
+/** Reference list for the LINE bot's 分類 command: every category plus its #code. */
+export function categoryListText(): string {
+  return [
+    '📂 分類清單',
+    '記帳時自動判斷關鍵字，也可以用 #代碼 強制指定，例如「記 300 #pet 貓罐頭」',
+    '',
+    ...CATEGORIES.map((c) => `${c.emoji} ${c.label}｜#${c.key}`),
+  ].join('\n');
+}
+
 /**
  * Keyword → category guesses for text typed into LINE ("記 120 星巴克").
  * First match wins, so put specific words before generic ones.

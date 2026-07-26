@@ -19,7 +19,7 @@ import {
   todoListText,
   weekAgendaText,
 } from '@/lib/agenda';
-import { categoryEmoji } from '@/lib/categories';
+import { categoryEmoji, categoryListText } from '@/lib/categories';
 import {
   findCardByHint,
   refreshStatementEvent,
@@ -212,6 +212,9 @@ async function runCommand(command: Command, now: Date): Promise<string> {
 
     case 'card_list':
       return cardListText();
+
+    case 'category_list':
+      return categoryListText();
 
     case 'todo_list':
       return todoListText(now);

@@ -21,6 +21,7 @@ export type Command =
   | { kind: 'bill_amount'; cardHint: string; amount: number }
   | { kind: 'bill_paid'; cardHint: string }
   | { kind: 'card_list' }
+  | { kind: 'category_list' }
   | { kind: 'card_add'; name: string; statementDay: number; dueDay: number }
   | { kind: 'insight'; period: string | null }
   | { kind: 'summary' }
@@ -217,6 +218,7 @@ export function parseCommand(raw: string, now: Date = new Date()): Command {
   if (/^(總覽|概況|狀態|summary|dashboard)$/i.test(lower)) return { kind: 'summary' };
   if (/^(帳單|繳費|信用卡帳單|bills?)$/i.test(lower)) return { kind: 'bills' };
   if (/^(卡片|我的卡|卡片列表|cards?)$/i.test(lower)) return { kind: 'card_list' };
+  if (/^(分類|分類說明|分類列表|categor(?:y|ies))$/i.test(lower)) return { kind: 'category_list' };
   if (/^(待辦|待辦事項|todo|todos|清單)$/i.test(lower)) return { kind: 'todo_list' };
 
   // 分析 / 分析 2026-06 / 分析 6月
@@ -365,6 +367,8 @@ export const HELP_TEXT = [
   '・花 350 星巴克 昨天',
   '・記 1200 家樂福 7/20 刷國泰',
   '・120 停車費（直接打數字也可以）',
+  '・記 300 #pet 貓罐頭（用 #代碼 強制指定分類）',
+  '・分類（看所有分類代碼）',
   '',
   '【待辦】',
   '・待辦 繳水電費 明天',
