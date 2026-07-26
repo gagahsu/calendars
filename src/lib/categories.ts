@@ -46,7 +46,7 @@ const KEYWORDS: Array<[CategoryKey, string[]]> = [
   ['subscription', ['netflix', 'spotify', 'youtube', 'icloud', 'chatgpt', 'disney', 'kkbox', '會員', '訂閱', 'notion', 'adobe', 'dropbox', 'apple music', 'prime']],
   ['entertainment', ['電影', '遊戲', 'steam', 'ktv', '演唱會', '展覽', '旅遊', '住宿', '飯店', '門票', '球賽']],
   ['health', ['看診', '掛號', '藥', '牙醫', '醫院', '健檢', '診所', '中醫', '健身', '眼鏡', '隱形眼鏡']],
-  ['education', ['書', '課程', '學費', '補習', '證照', '考試', '教材', 'udemy']],
+  ['education', ['書', '課程', '學費', '補習', '證照', '考試', '教材', 'udemy', '知島']],
   ['social', ['紅包', '禮物', '包禮', '婚禮', '孝親', '捐款', '白包']],
   ['insurance', ['保費', '保險', '稅', '牌照稅', '燃料費', '所得稅', '勞保', '健保']],
   ['investment', ['證券', '投顧', '投資', '股票', '基金', '期貨', '定期定額', 'etf']],
