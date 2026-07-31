@@ -1,4 +1,4 @@
-import type { Card, Statement } from '@prisma/client';
+import type { Card, PrismaPromise, Statement } from '@prisma/client';
 import { prisma } from './db';
 import {
   addMonths,
@@ -51,6 +51,8 @@ export function openPeriodFor(card: CardBillingRules, now: Date = new Date()): s
   return p.day > close ? addMonths(periodKey(now), 1) : periodKey(now);
 }
 
+type SyncOptions = { monthsBack?: number; monthsAhead?: number; now?: Date };
+
 /**
  * Create (or refresh) the Statement rows for a card covering `monthsBack`
  * previous periods through `monthsAhead` future periods, and mirror each due
@@ -58,65 +60,99 @@ export function openPeriodFor(card: CardBillingRules, now: Date = new Date()): s
  *
  * Idempotent: safe to call on every card write and from the cron job.
  */
-export async function syncStatements(
-  card: Card,
-  {
-    monthsBack = 2,
-    monthsAhead = 3,
-    now = new Date(),
-  }: { monthsBack?: number; monthsAhead?: number; now?: Date } = {},
+export async function syncStatements(card: Card, options: SyncOptions = {}): Promise<void> {
+  await syncAllStatements([card], options);
+}
+
+/**
+ * The same sync for every card at once. The database is a long way from the
+ * functions, so this is written to cost two round trips in total rather than
+ * a dozen per card — the cron job used to spend its whole timeout budget here.
+ */
+export async function syncAllStatements(
+  cards: Card[],
+  { monthsBack = 2, monthsAhead = 3, now = new Date() }: SyncOptions = {},
 ): Promise<void> {
-  const current = openPeriodFor(card, now);
-  const periods: string[] = [];
-  for (let i = -monthsBack; i <= monthsAhead; i += 1) periods.push(addMonths(current, i));
+  if (cards.length === 0) return;
 
-  for (const period of periods) {
-    const dueAt = dueDateFor(card, period);
-    const existing = await prisma.statement.findUnique({
-      where: { cardId_period: { cardId: card.id, period } },
-      include: { event: true },
-    });
+  const plan = cards.map((card) => {
+    const current = openPeriodFor(card, now);
+    const periods: string[] = [];
+    for (let i = -monthsBack; i <= monthsAhead; i += 1) periods.push(addMonths(current, i));
+    return { card, periods };
+  });
 
-    if (existing) {
+  const existing = await prisma.statement.findMany({
+    where: { OR: plan.map(({ card, periods }) => ({ cardId: card.id, period: { in: periods } })) },
+    include: { event: true },
+  });
+  const byKey = new Map(existing.map((row) => [`${row.cardId}:${row.period}`, row]));
+
+  // Collected first, then sent as one batch. Everything below is a no-op on a
+  // steady-state run, so the usual cost is the single read above.
+  const writes: PrismaPromise<unknown>[] = [];
+
+  for (const { card, periods } of plan) {
+    for (const period of periods) {
+      const dueAt = dueDateFor(card, period);
+      const row = byKey.get(`${card.id}:${period}`);
+
+      if (!row) {
+        // A row we are only now creating for a deadline that already passed is
+        // history we know nothing about — treat it as settled rather than
+        // nagging the user about payments they never told us were late.
+        const settled = dueAt.getTime() < startOfToday(now).getTime();
+        writes.push(
+          prisma.statement.create({
+            data: {
+              // `card: connect` rather than a bare `cardId`, so the nested
+              // event create stays on Prisma's checked input type.
+              card: { connect: { id: card.id } },
+              period,
+              dueAt,
+              paid: settled,
+              paidAt: settled ? new Date() : null,
+              event: { create: billEventData(card, dueAt, null, settled) },
+            },
+          }),
+        );
+        continue;
+      }
+
       // Card rules may have changed (e.g. the user fixed the due day).
-      if (existing.dueAt.getTime() !== dueAt.getTime()) {
-        await prisma.statement.update({ where: { id: existing.id }, data: { dueAt } });
+      if (row.dueAt.getTime() !== dueAt.getTime()) {
+        writes.push(prisma.statement.update({ where: { id: row.id }, data: { dueAt } }));
       }
-      if (existing.eventId) {
-        await prisma.event.update({
-          where: { id: existing.eventId },
-          data: {
-            startsAt: dueAt,
-            title: billEventTitle(card, existing.amount, existing.paid),
-            category: 'bill',
-          },
-        });
-      } else {
-        const event = await createBillEvent(card, dueAt, existing.amount, existing.paid);
-        await prisma.statement.update({
-          where: { id: existing.id },
-          data: { eventId: event.id },
-        });
-      }
-      continue;
-    }
 
-    // A row we are only now creating for a deadline that already passed is
-    // history we know nothing about — treat it as settled rather than nagging
-    // the user about payments they never told us were late.
-    const settled = dueAt.getTime() < startOfToday(now).getTime();
-    const event = await createBillEvent(card, dueAt, null, settled);
-    await prisma.statement.create({
-      data: {
-        cardId: card.id,
-        period,
-        dueAt,
-        eventId: event.id,
-        paid: settled,
-        paidAt: settled ? new Date() : null,
-      },
-    });
+      if (!row.event) {
+        writes.push(
+          prisma.statement.update({
+            where: { id: row.id },
+            data: { event: { create: billEventData(card, dueAt, row.amount, row.paid) } },
+          }),
+        );
+        continue;
+      }
+
+      // Only write the mirrored event when it actually drifted. Rewriting all
+      // of them unconditionally was the bulk of the old query count.
+      const title = billEventTitle(card, row.amount, row.paid);
+      if (
+        row.event.title !== title ||
+        row.event.startsAt.getTime() !== dueAt.getTime() ||
+        row.event.category !== 'bill'
+      ) {
+        writes.push(
+          prisma.event.update({
+            where: { id: row.event.id },
+            data: { startsAt: dueAt, title, category: 'bill' },
+          }),
+        );
+      }
+    }
   }
+
+  if (writes.length > 0) await prisma.$transaction(writes);
 }
 
 export function billEventTitle(card: Pick<Card, 'name'>, amount: unknown, paid: boolean): string {
@@ -125,16 +161,14 @@ export function billEventTitle(card: Pick<Card, 'name'>, amount: unknown, paid: 
   return paid ? `✅ ${card.name} 已繳${money}` : `${card.name} 繳費${money}`;
 }
 
-async function createBillEvent(card: Card, dueAt: Date, amount: unknown, paid: boolean) {
-  return prisma.event.create({
-    data: {
-      title: billEventTitle(card, amount, paid),
-      startsAt: dueAt,
-      allDay: true,
-      category: 'bill',
-      note: card.last4 ? `卡號末四碼 ${card.last4}` : null,
-    },
-  });
+function billEventData(card: Card, dueAt: Date, amount: unknown, paid: boolean) {
+  return {
+    title: billEventTitle(card, amount, paid),
+    startsAt: dueAt,
+    allDay: true,
+    category: 'bill',
+    note: card.last4 ? `卡號末四碼 ${card.last4}` : null,
+  };
 }
 
 /** Remove the mirrored calendar events belonging to a card's statements. */

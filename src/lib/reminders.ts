@@ -8,7 +8,7 @@ import {
   timeKey,
   toTaipeiParts,
 } from './date';
-import { billStatusText, syncStatements, upcomingBills } from './billing';
+import { billStatusText, syncAllStatements, upcomingBills } from './billing';
 import { pushMessage, lineConfigured, text, DEFAULT_QUICK_REPLIES } from './line';
 
 /**
@@ -37,12 +37,10 @@ export async function runReminders(
   // Keep future statements materialised so a bill is never missed because its
   // row did not exist yet.
   const cards = await prisma.card.findMany({ where: { active: true } });
-  for (const card of cards) {
-    try {
-      await syncStatements(card);
-    } catch (error) {
-      run.errors.push(`syncStatements(${card.name}): ${message(error)}`);
-    }
+  try {
+    await syncAllStatements(cards, { now });
+  } catch (error) {
+    run.errors.push(`syncStatements: ${message(error)}`);
   }
 
   const jobs: Array<() => Promise<{ key: string; body: string } | null>> = [

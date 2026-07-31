@@ -7,7 +7,7 @@ import { DEFAULT_QUICK_REPLIES, lineConfigured, pushMessage, text } from '@/lib/
 import { prisma } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Called by Vercel Cron twice a day (see vercel.json). `slot=morning` sends the

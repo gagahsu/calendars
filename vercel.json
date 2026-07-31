@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["bom1"],
   "crons": [
     {
       "path": "/api/cron/reminders?slot=morning",
@@ -15,7 +16,7 @@
       "maxDuration": 60
     },
     "src/app/api/cron/reminders/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     }
   }
 }
