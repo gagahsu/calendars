@@ -23,6 +23,17 @@ const ACCENT = '#FFB454';
 
 const FONTS = "'Microsoft JhengHei','PingFang TC','Noto Sans CJK TC','Hiragino Sans','Heiti TC',sans-serif";
 
+/**
+ * The menu is drawn 2500px wide but shown at phone width — around 390pt — so
+ * everything here lands on screen at roughly a sixth of its value. Divide by
+ * 6.4 to read these as points: the 152px label is about 24pt, the 70px
+ * sub-label about 11pt. That ratio is why the sizes look oversized in the PNG.
+ */
+const ICON_BOX = 160; // the coordinate space the ICONS paths are written in
+const ICON_SIZE = 210; // how large that box is actually drawn
+const LABEL_SIZE = 152;
+const SUB_SIZE = 70;
+
 const COLS = [
   { x: 0, width: 833 },
   { x: 833, width: 834 },
@@ -149,19 +160,20 @@ export function buildSvg() {
       parts.push(`<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${ACCENT}" fill-opacity="0.13"/>`);
     }
 
+    // Icon, label and sub-label as one block centred in the cell.
     parts.push(
-      `<g transform="translate(${cx - 80} ${cy - 200})" color="${colour}"` +
-      ` fill="none" stroke="currentColor" stroke-width="9"` +
+      `<g transform="translate(${cx - ICON_SIZE / 2} ${cy - 260}) scale(${ICON_SIZE / ICON_BOX})"` +
+      ` color="${colour}" fill="none" stroke="currentColor" stroke-width="9"` +
       ` stroke-linecap="round" stroke-linejoin="round">${ICONS[cell.icon]}</g>`,
     );
 
     parts.push(
-      `<text x="${cx}" y="${cy + 95}" text-anchor="middle" font-family="${FONTS}"` +
-      ` font-size="104" font-weight="bold" fill="${colour}" letter-spacing="6">${cell.label}</text>`,
+      `<text x="${cx}" y="${cy + 157}" text-anchor="middle" font-family="${FONTS}"` +
+      ` font-size="${LABEL_SIZE}" font-weight="bold" fill="${colour}" letter-spacing="8">${cell.label}</text>`,
     );
     parts.push(
-      `<text x="${cx}" y="${cy + 186}" text-anchor="middle" font-family="${FONTS}"` +
-      ` font-size="46" fill="${INK}" fill-opacity="0.6" letter-spacing="2">${cell.sub}</text>`,
+      `<text x="${cx}" y="${cy + 260}" text-anchor="middle" font-family="${FONTS}"` +
+      ` font-size="${SUB_SIZE}" fill="${INK}" fill-opacity="0.66" letter-spacing="2">${cell.sub}</text>`,
     );
   }
 
