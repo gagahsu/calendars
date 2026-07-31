@@ -1,8 +1,7 @@
 import { prisma, toNum } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { bool, handle, int, intArray, readJson, str, badRequest } from '@/lib/api';
-import { statementCloseDate, syncStatements } from '@/lib/billing';
-import { addMonths } from '@/lib/date';
+import { syncStatements, trackedSpendFor } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,20 +41,6 @@ export async function GET() {
       ),
     };
   });
-}
-
-async function trackedSpendFor(
-  cardId: string,
-  card: { statementDay: number; dueDay: number; dueNextMonth: boolean },
-  period: string,
-): Promise<number> {
-  const end = statementCloseDate(card, period);
-  const start = statementCloseDate(card, addMonths(period, -1));
-  const sum = await prisma.expense.aggregate({
-    where: { cardId, spentAt: { gt: start, lte: end } },
-    _sum: { amount: true },
-  });
-  return toNum(sum._sum.amount) ?? 0;
 }
 
 export async function POST(request: Request) {

@@ -2,6 +2,7 @@ import { prisma, toNum } from './db';
 import { addMonths, dateKey, periodKey, periodRange, toTaipeiParts } from './date';
 import { CATEGORIES, categoryLabel } from './categories';
 import { chat, extractJson, openRouterConfigured, OpenRouterError } from './openrouter';
+import { statementCycleRange, trackedSpendFor } from './billing';
 
 export type CategoryBreakdown = {
   key: string;
@@ -29,6 +30,21 @@ export type MonthlyStats = {
   /** Merchants charged in 3 consecutive months — likely subscriptions. */
   recurring: Array<{ merchant: string; monthlyAverage: number; months: number }>;
   billTotal: number;
+  /**
+   * Per statement, the bill against what was logged inside the cycle it
+   * actually bills for. `billTotal` alone invites a comparison with the
+   * calendar-month total that means nothing: a 2026-07 statement closing on
+   * the 12th is mostly June's spending, so the two figures are never expected
+   * to match and reading a shortfall into the difference is a false alarm.
+   */
+  billCoverage: Array<{
+    card: string;
+    period: string;
+    amount: number | null;
+    tracked: number;
+    cycleStart: string;
+    cycleEnd: string;
+  }>;
   unpaidBills: Array<{ card: string; period: string; amount: number | null; dueAt: string }>;
 };
 
@@ -67,7 +83,13 @@ export async function buildMonthlyStats(
     prisma.card.findMany({ where: { active: true }, select: { id: true, name: true } }),
     prisma.statement.findMany({
       where: { period },
-      include: { card: { select: { name: true } } },
+      // The billing-rule fields come along so each statement's real cycle can
+      // be worked out, not just its name.
+      include: {
+        card: {
+          select: { name: true, statementDay: true, dueDay: true, dueNextMonth: true },
+        },
+      },
     }),
   ]);
 
@@ -150,6 +172,19 @@ export async function buildMonthlyStats(
     byCard,
     recurring: await findRecurring(period),
     billTotal: round(sum(statements.map((s) => toNum(s.amount) ?? 0))),
+    billCoverage: await Promise.all(
+      statements.map(async (statement) => {
+        const { start, end } = statementCycleRange(statement.card, statement.period);
+        return {
+          card: statement.card.name,
+          period: statement.period,
+          amount: toNum(statement.amount),
+          tracked: round(await trackedSpendFor(statement.cardId, statement.card, statement.period)),
+          cycleStart: dateKey(start),
+          cycleEnd: dateKey(end),
+        };
+      }),
+    ),
     unpaidBills: statements
       .filter((s) => !s.paid)
       .map((s) => ({
@@ -209,6 +244,9 @@ const SYSTEM_PROMPT = `你是一位務實的台灣個人理財顧問。使用者
 
 分析原則：
 - 一切結論都要有資料支撐，資料裡沒有的事情不要編。
+- 信用卡帳單的「期別」是結帳週期不是曆月，所以帳單金額與本月支出本來就不會相等，
+  兩者的差距不是異常，不要拿來當作漏記或現金流的警告。要談帳單就用
+  「帳單與已記錄消費對照」裡同一列的兩個數字比。
 - tips 給 3 到 5 條，依可省金額由大到小排列，優先針對訂閱服務、與上月相比暴增的類別、以及高頻小額消費。
 - monthlySaving 要保守估計，只填數字（新台幣），沒把握就填 null。
 - 金額一律用新台幣，語氣直接、像朋友給建議，不要客套話。
@@ -362,6 +400,19 @@ function promptPayload(stats: MonthlyStats) {
       連續月數: r.months,
     })),
     信用卡帳單總額: stats.billTotal,
+    帳單與已記錄消費對照: {
+      說明:
+        '帳單期別是結帳週期，不是曆月。例如 2026-07 期、結帳日 12 號的卡，帳的是 6/13–7/12 的消費，' +
+        '所以帳單金額本來就不會等於本月支出，兩者相差不代表漏記或現金流風險，不要據此提出警告。' +
+        '要比較請拿同一列的「帳單金額」與「該週期已記錄」比。',
+      明細: stats.billCoverage.map((b) => ({
+        卡片: b.card,
+        期別: b.period,
+        結帳週期: `${b.cycleStart} ~ ${b.cycleEnd}`,
+        帳單金額: b.amount,
+        該週期已記錄: b.tracked,
+      })),
+    },
     未繳帳單: stats.unpaidBills.map((b) => ({
       卡片: b.card,
       期別: b.period,
@@ -441,6 +492,21 @@ function ruleWarnings(stats: MonthlyStats): string[] {
   for (const bill of stats.unpaidBills) {
     const due = new Date(bill.dueAt).getTime();
     if (due < now) warnings.push(`${bill.card} ${bill.period} 帳單已逾期未繳。`);
+  }
+
+  // The honest version of "you are not recording enough": the bill and the
+  // tracked total cover the exact same window, so a large shortfall here means
+  // spending really is going unlogged. Fees and carryover make small gaps
+  // normal, hence the generous threshold.
+  for (const bill of stats.billCoverage) {
+    if (bill.amount === null || bill.amount < 1000) continue;
+    const missing = round(bill.amount - bill.tracked);
+    if (missing < 1000 || missing <= bill.amount * 0.4) continue;
+    warnings.push(
+      `${bill.card} ${bill.period} 帳單 NT$${bill.amount.toLocaleString('en-US')}，` +
+        `但 ${bill.cycleStart}~${bill.cycleEnd} 只記錄了 NT$${bill.tracked.toLocaleString('en-US')}，` +
+        `有 NT$${missing.toLocaleString('en-US')} 沒記到。`,
+    );
   }
   return warnings;
 }

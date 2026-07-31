@@ -1,5 +1,5 @@
 import type { Card, PrismaPromise, Statement } from '@prisma/client';
-import { prisma } from './db';
+import { prisma, toNum } from './db';
 import {
   addMonths,
   daysInMonth,
@@ -21,6 +21,38 @@ export function clampDay(year: number, month: number, day: number): number {
 }
 
 export type CardBillingRules = Pick<Card, 'statementDay' | 'dueDay' | 'dueNextMonth'>;
+
+/**
+ * The spending window a statement actually bills for: the day after the
+ * previous close, through this period's close.
+ *
+ * A `period` of 2026-07 on a card that closes on the 12th covers 6/13–7/12, so
+ * most of that bill is June's spending. Comparing a statement against the
+ * calendar month of the same name is the mistake this exists to prevent.
+ */
+export function statementCycleRange(
+  card: CardBillingRules,
+  period: string,
+): { start: Date; end: Date } {
+  return {
+    start: statementCloseDate(card, addMonths(period, -1)),
+    end: statementCloseDate(card, period),
+  };
+}
+
+/** What the user logged inside a statement's billing cycle. */
+export async function trackedSpendFor(
+  cardId: string,
+  card: CardBillingRules,
+  period: string,
+): Promise<number> {
+  const { start, end } = statementCycleRange(card, period);
+  const sum = await prisma.expense.aggregate({
+    where: { cardId, spentAt: { gt: start, lte: end } },
+    _sum: { amount: true },
+  });
+  return toNum(sum._sum.amount) ?? 0;
+}
 
 /** The statement closing instant (00:00 Taipei) for a `YYYY-MM` period. */
 export function statementCloseDate(card: CardBillingRules, period: string): Date {
