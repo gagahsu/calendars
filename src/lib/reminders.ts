@@ -88,28 +88,49 @@ export async function runReminders(
 }
 
 /**
+ * How many days before a deadline an unregistered amount is chased up. A
+ * payment reminder that cannot say how much to pay is barely a reminder, and
+ * three days is enough time to go and look the number up.
+ */
+const AMOUNT_PROMPT_DAYS = 3;
+
+/**
  * Credit-card deadlines — the main event. A card fires on each of its
- * `remindDaysBefore` offsets, and every day once overdue.
+ * `remindDaysBefore` offsets, every day once overdue, and once at
+ * `AMOUNT_PROMPT_DAYS` out if its amount is still blank.
  */
 async function billReminder(now: Date): Promise<ReminderMessage | null> {
   const bills = await upcomingBills({ withinDays: 40, now });
   const due = bills.filter(
-    (bill) => bill.overdue || bill.card.remindDaysBefore.includes(bill.daysLeft),
+    (bill) =>
+      bill.overdue ||
+      bill.card.remindDaysBefore.includes(bill.daysLeft) ||
+      // Folded into this reminder rather than sent as its own message: cards
+      // whose remindDaysBefore already contains 3 would otherwise produce two
+      // notifications on the same morning saying much the same thing.
+      (bill.daysLeft === AMOUNT_PROMPT_DAYS && toNum(bill.statement.amount) === null),
   );
   if (due.length === 0) return null;
 
   const lines = ['💳 信用卡繳費提醒', ''];
   let total = 0;
+  let missing = 0;
   for (const bill of due) {
     const amount = toNum(bill.statement.amount);
     if (amount) total += amount;
+    else missing += 1;
     const flag = bill.overdue ? '🔴 逾期' : bill.daysLeft === 0 ? '🔴 今天到期' : '🟠';
     lines.push(`${flag} ${bill.card.name}`);
-    lines.push(`   ${amount ? money(amount) : '金額尚未登記'}｜${billStatusText(bill)}`);
+    lines.push(`   ${amount ? money(amount) : '⚠️ 金額尚未登記'}｜${billStatusText(bill)}`);
     if (bill.card.autoPay) lines.push('   （設定為自動扣繳，請確認餘額足夠）');
   }
   if (total > 0) lines.push('', `合計 ${money(total)}`);
-  lines.push('', '👇 繳完直接點卡片上的按鈕');
+  lines.push(
+    '',
+    missing > 0
+      ? `👇 有 ${missing} 張還沒登記金額，點卡片上的「輸入金額」補上`
+      : '👇 繳完直接點卡片上的按鈕',
+  );
 
   // One key per day per set of cards, so changing amounts mid-day does not
   // trigger a second push.

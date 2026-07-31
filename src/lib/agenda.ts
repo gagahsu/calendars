@@ -179,35 +179,68 @@ function billBubble(bill: UpcomingBill) {
     },
     footer: {
       type: 'box',
-      layout: 'horizontal',
+      layout: 'vertical',
       spacing: 'sm',
       contents: [
+        // Nothing can be marked paid meaningfully until the amount is in, so
+        // when it is missing that button leads and the rest sits under it.
+        ...(amount === null ? [amountButton(bill)] : []),
         {
-          type: 'button',
-          style: 'primary',
-          color: '#4F63D2',
-          height: 'sm',
-          action: {
-            type: 'postback',
-            label: '✅ 已繳費',
-            // Echoed into the chat so the thread still reads as a record of
-            // what was done, the same as typing the command would.
-            displayText: `已繳 ${bill.card.name}`,
-            data: `action=bill_paid&id=${bill.statement.id}`,
-          },
-        },
-        {
-          type: 'button',
-          style: 'secondary',
-          height: 'sm',
-          action: {
-            type: 'postback',
-            label: '未繳費',
-            displayText: `${bill.card.name} 還沒繳`,
-            data: `action=bill_unpaid&id=${bill.statement.id}`,
-          },
+          type: 'box',
+          layout: 'horizontal',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              color: '#4F63D2',
+              height: 'sm',
+              action: {
+                type: 'postback',
+                label: '✅ 已繳費',
+                // Echoed into the chat so the thread still reads as a record
+                // of what was done, the same as typing the command would.
+                displayText: `已繳 ${bill.card.name}`,
+                data: `action=bill_paid&id=${bill.statement.id}`,
+              },
+            },
+            {
+              type: 'button',
+              style: 'secondary',
+              height: 'sm',
+              action: {
+                type: 'postback',
+                label: '未繳費',
+                displayText: `${bill.card.name} 還沒繳`,
+                data: `action=bill_unpaid&id=${bill.statement.id}`,
+              },
+            },
+          ],
         },
       ],
+    },
+  };
+}
+
+/**
+ * Opens the keyboard already holding 「帳單 <卡片> 」 so registering the amount
+ * is one tap plus the number — the same trick the rich menu uses for 記帳.
+ *
+ * Carries no `action`, so the webhook stays silent when it fires; the button
+ * exists to prime the input box, not to be answered.
+ */
+function amountButton(bill: UpcomingBill) {
+  return {
+    type: 'button',
+    style: 'primary',
+    color: '#F5A524',
+    height: 'sm',
+    action: {
+      type: 'postback',
+      label: '💰 輸入金額',
+      data: `fill=bill_amount&id=${bill.statement.id}`,
+      inputOption: 'openKeyboard',
+      fillInText: `帳單 ${bill.card.name} `,
     },
   };
 }
