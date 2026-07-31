@@ -25,6 +25,7 @@ export type Command =
   | { kind: 'card_add'; name: string; statementDay: number; dueDay: number }
   | { kind: 'insight'; period: string | null }
   | { kind: 'summary' }
+  | { kind: 'undo' }
   | { kind: 'help' }
   | { kind: 'unknown'; text: string };
 
@@ -220,6 +221,9 @@ export function parseCommand(raw: string, now: Date = new Date()): Command {
   if (/^(卡片|我的卡|卡片列表|cards?)$/i.test(lower)) return { kind: 'card_list' };
   if (/^(分類|分類說明|分類列表|categor(?:y|ies))$/i.test(lower)) return { kind: 'category_list' };
   if (/^(待辦|待辦事項|todo|todos|清單)$/i.test(lower)) return { kind: 'todo_list' };
+  // Deliberately only the bare word: 「取消 開會」 should not silently delete
+  // whatever happened to be recorded last.
+  if (/^(撤銷|復原|反悔|取消|undo)$/i.test(lower)) return { kind: 'undo' };
 
   // 分析 / 分析 2026-06 / 分析 6月
   const insight = /^(分析|消費分析|報告|analy(?:se|ze|sis)|insight)\s*(.*)$/i.exec(input);
@@ -369,6 +373,8 @@ export const HELP_TEXT = [
   '・120 停車費（直接打數字也可以）',
   '・記 300 #pet 貓罐頭（用 #代碼 強制指定分類）',
   '・分類（看所有分類代碼）',
+  '',
+  '・撤銷（收回剛剛記錯的那一筆）',
   '',
   '【待辦】',
   '・待辦 繳水電費 明天',

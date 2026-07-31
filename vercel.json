@@ -17,6 +17,9 @@
     },
     "src/app/api/cron/reminders/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/cron/events/route.ts": {
+      "maxDuration": 60
     }
   }
 }

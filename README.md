@@ -52,6 +52,7 @@
 | `記 450 #health 看牙醫` | 用 `#分類` 強制指定分類 |
 | `待辦 繳水電費 明天` | 新增待辦 |
 | `完成 1` / `完成 繳水電費` | 勾掉待辦 |
+| `撤銷` | 收回 6 小時內記錯的那一筆（消費 / 待辦 / 行程） |
 | `行程 3/5 14:00 看牙醫` | 新增行程 |
 | `提醒 下週三 早上9點 開會` | 支援「下週三」「早上9點」「9點半」 |
 | `帳單` | 列出未繳帳單與倒數天數 |
@@ -130,13 +131,15 @@ SESSION_SECRET="上面產生的 hex 字串"
 ### 5. 設定 AI 分析（可選但建議）
 
 1. 到 [openrouter.ai/keys](https://openrouter.ai/keys) 申請免費 API key → `OPENROUTER_API_KEY`。
-2. `OPENROUTER_MODELS` 用逗號分隔，會依序嘗試，前面的被限流就換下一個。預設第一個是 `openrouter/free`——OpenRouter 自己的路由端點，會在免費模型池裡自動挑一個可用的，不用自己追蹤哪些模型還在免費：
+2. `OPENROUTER_MODELS` 建議**留空**，跟著 `src/lib/openrouter.ts` 裡的預設清單走。免費 slug 會被下架（本專案原本那三個備援後來全變成 404），寫死在環境變數裡的清單不會隨程式更新，反而更容易爛掉。
 
-```
-OPENROUTER_MODELS="openrouter/free,deepseek/deepseek-chat-v3-0324:free,meta-llama/llama-3.3-70b-instruct:free,google/gemma-3-27b-it:free"
-```
+預設第一個是 `openrouter/free`——OpenRouter 自己的路由端點，會在免費模型池裡自動挑一個可用的。後面留的是備援：路由端點出狀況，或它挑到的模型回了一坨沒有內容的 JSON 時，才會退回逐一嘗試固定模型。
 
-`openrouter/free` 後面留的是備援：萬一路由端點本身出狀況，才會退回逐一嘗試固定模型。免費模型的可用清單會變動，可到 OpenRouter 網站上篩選 `:free` 後更新備援清單。
+要自己確認目前還有哪些免費模型：
+
+```bash
+curl -s https://openrouter.ai/api/v1/models | jq -r '.data[]|select(.pricing.prompt=="0")|.id'
+```
 若想改用其他 OpenAI 相容服務，設定 `OPENROUTER_BASE_URL` 即可。
 
 沒有設定 key 也能用，只是分析會退回規則式版本。
@@ -164,13 +167,34 @@ npx vercel
 上會多一顆「💰 輸入金額」，點下去鍵盤會預先填好 `帳單 <卡片> `，只要補數字。沒有金
 額的繳費提醒等於沒用，所以這一則不受各卡自訂提醒日影響。
 
-> Vercel Hobby 方案的 Cron 每天只跑一次、最多兩個排程，所以設計成「一天兩次摘要」而不是逐筆到點提醒。
-> 想要更即時的話，可改用外部排程服務打
-> `https://你的網域/api/cron/reminders?slot=morning&key=$CRON_SECRET`。
+設定為 `autoPay` 的卡，**繳款日隔天會自動標記為已繳**（`paidAmount` 帶入帳單金額），
+並推一則通知。錢銀行已經扣走了，卻要人工點一下才不再被當成逾期，只會讓提醒天天響到
+你不再看它。扣款失敗的話，通知裡的卡片一樣有「未繳費」可以改回來。
+
+> Hobby 方案的 Cron 每天只跑一次、精度是「該小時內的任一時刻」，所以摘要設計成一天
+> 兩次而不是逐筆到點。想要更準時，可以像下一節那樣改用外部排程打
+> `/api/cron/reminders?slot=morning&key=<CRON_SECRET>`。
+
+### 7. 行程提醒（需要外部排程）
+
+`Event.remindMinutes` 由 `/api/cron/events` 發送。它跟每日摘要分開，因為需要高頻執行，
+而 Vercel Hobby 的 cron 一天只能跑一次。掛一個免費排程服務（cron-job.org 之類）每
+5–15 分鐘打一次：
+
+```
+https://你的網域/api/cron/events?key=<CRON_SECRET>
+```
+
+**在你掛上排程之前，`remindMinutes` 不會有任何作用**——網頁上那個「🔔 前 30 分鐘」
+就只是個顯示。
+
+判斷邏輯是「已經過了提醒時間，而且行程還沒開始」，不是「落在最近 N 分鐘內」。排程服務
+遲到、漏跑或被改設定都不會讓提醒消失，只會晚到；`ReminderLog` 保證同一個提醒只發一次。
+訊息裡寫的是**實際剩餘時間**而不是設定的分鐘數，所以不會在只剩 8 分鐘時謊稱還有 30 分。
 
 每次推播都會寫一筆 `ReminderLog`，同一件事不會重複通知，手動多打幾次排程端點也安全。
 
-### 7. 設定 LINE 圖文選單
+### 8. 設定 LINE 圖文選單
 
 聊天室下方的六格選單。圖是用程式畫的（`scripts/richmenu-layout.mjs` 定義版面，
 sharp 算圖），所以改按鈕就是改一個檔案再重跑兩個指令，不用開設計軟體：
@@ -193,7 +217,7 @@ RICHMENU_APP_URL=https://你的網域 npm run richmenu:install       # 上傳並
 >
 > 建立選單打 `api.line.me`，但上傳圖片要打 `api-data.line.me`，兩個 host 不一樣。
 
-### 8. 安裝到手機
+### 9. 安裝到手機
 
 用手機瀏覽器開啟網站 → 加到主畫面。
 
@@ -251,6 +275,8 @@ src/
     (app)/                    需登入的頁面（行事曆／信用卡／待辦／記帳／分析）
     login/                    登入頁
     api/                      REST API、LINE webhook、cron
+      cron/reminders/         每日摘要（Vercel Cron，一天兩次）
+      cron/events/            行程到點提醒（需外部排程高頻輪詢）
   components/                 前端畫面元件
 ```
 

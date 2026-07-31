@@ -8,7 +8,7 @@ import {
   timeKey,
   toTaipeiParts,
 } from './date';
-import { billStatusText, syncAllStatements, upcomingBills } from './billing';
+import { billStatusText, refreshStatementEvent, syncAllStatements, upcomingBills } from './billing';
 import { billActionMessage } from './agenda';
 import { pushMessage, lineConfigured, text, DEFAULT_QUICK_REPLIES, type LineMessage } from './line';
 
@@ -51,6 +51,9 @@ export async function runReminders(
   }
 
   const jobs: Array<() => Promise<ReminderMessage | null>> = [
+    // Ahead of billReminder: anything settled here should not also be
+    // announced as overdue in the same push.
+    () => autoPaySettlement(now, dryRun),
     () => billReminder(now),
     () => dayDigest(now, slot),
     () => todoReminder(now, slot),
@@ -85,6 +88,66 @@ export async function runReminders(
     .catch(() => undefined);
 
   return run;
+}
+
+/**
+ * Cards set to autoPay settle themselves the day after the deadline.
+ *
+ * The bank has already taken the money; leaving the statement unpaid meant the
+ * reminder announced it as overdue every single day until someone tapped a
+ * button, which is how a notification stops being read. The push that reports
+ * this carries the same 未繳費 button as any other bill card, so a failed
+ * direct debit is one tap to put back.
+ */
+async function autoPaySettlement(now: Date, dryRun: boolean): Promise<ReminderMessage | null> {
+  // dueAt is midnight Taipei on the deadline, so this is everything whose day
+  // has fully passed.
+  const settled = await prisma.statement.findMany({
+    where: {
+      paid: false,
+      dueAt: { lt: startOfTaipeiDay(now) },
+      card: { autoPay: true, active: true },
+    },
+    include: { card: true },
+    orderBy: { dueAt: 'asc' },
+  });
+  if (settled.length === 0) return null;
+
+  if (!dryRun) {
+    await prisma.$transaction(
+      settled.map((statement) =>
+        prisma.statement.update({
+          where: { id: statement.id },
+          data: { paid: true, paidAt: now, paidAmount: statement.amount },
+        }),
+      ),
+    );
+    for (const statement of settled) {
+      await refreshStatementEvent(statement.id).catch(() => undefined);
+    }
+  }
+
+  const lines = ['🏦 自動扣繳已完成', ''];
+  let total = 0;
+  for (const statement of settled) {
+    const amount = toNum(statement.amount);
+    if (amount) total += amount;
+    lines.push(`・${statement.card.name} ${statement.period}｜${amount ? money(amount) : '金額未登記'}`);
+  }
+  if (total > 0) lines.push('', `合計 ${money(total)}`);
+  lines.push('', '已自動標記為已繳。若扣款失敗，點卡片上的「未繳費」改回來。');
+
+  // Keyed on the statements themselves: this can only ever fire once each.
+  const key = `autopay:${settled.map((s) => s.id).sort().join(',')}`;
+  const cards = billActionMessage(
+    settled.map((statement) => ({
+      statement,
+      card: statement.card,
+      daysLeft: daysBetween(now, statement.dueAt),
+      overdue: true,
+    })),
+  );
+  return { key, body: lines.join('\n'), extra: cards ? [cards] : undefined };
 }
 
 /**
@@ -184,6 +247,80 @@ async function todoReminder(
   }
   lines.push('', '完成請回覆：完成 1');
   return { key: `todo:${dateKey(now)}`, body: lines.join('\n') };
+}
+
+/**
+ * Fire the per-event reminders that have come due, for /api/cron/events.
+ *
+ * Deliberately not written as a "did this fall inside the last N minutes"
+ * window: an external poller can be late, drop a beat, or be reconfigured, and
+ * a window would silently swallow the reminder every time that happened. This
+ * asks "is it past time and has the event not started yet", so a late poll
+ * still delivers, and the ReminderLog key keeps it to once.
+ *
+ * The consequence is that a reminder can arrive later than requested. The text
+ * reports the real time remaining rather than the configured offset, so it
+ * never claims to be 30 minutes ahead when it is 8.
+ */
+export async function runEventReminders(
+  { now = new Date(), dryRun = false }: { now?: Date; dryRun?: boolean } = {},
+): Promise<ReminderRun & { checked: number }> {
+  const run: ReminderRun & { checked: number } = {
+    slot: 'morning',
+    pushed: [],
+    skipped: [],
+    errors: [],
+    checked: 0,
+  };
+
+  // The furthest ahead any reminder can be asked for, so the query stays small.
+  const horizon = addDays(now, 31);
+  const events = await prisma.event.findMany({
+    where: { startsAt: { gt: now, lte: horizon }, category: { not: 'bill' } },
+    orderBy: { startsAt: 'asc' },
+  });
+  run.checked = events.length;
+
+  for (const event of events) {
+    for (const minutes of event.remindMinutes) {
+      const fireAt = new Date(event.startsAt.getTime() - minutes * 60_000);
+      if (fireAt > now) continue;
+
+      const key = `event:${event.id}:${minutes}`;
+      try {
+        const already = await prisma.reminderLog.findUnique({ where: { key } });
+        if (already) {
+          run.skipped.push(key);
+          continue;
+        }
+        if (!dryRun) {
+          if (!lineConfigured()) {
+            run.errors.push('LINE 未設定，略過推播');
+            continue;
+          }
+          await pushMessage([text(eventReminderText(event, now), DEFAULT_QUICK_REPLIES)]);
+          await prisma.reminderLog.create({ data: { key } });
+        }
+        run.pushed.push(key);
+      } catch (error) {
+        run.errors.push(`${key}: ${message(error)}`);
+      }
+    }
+  }
+
+  return run;
+}
+
+function eventReminderText(
+  event: { title: string; startsAt: Date; allDay: boolean; location: string | null },
+  now: Date,
+): string {
+  const left = Math.max(0, Math.round((event.startsAt.getTime() - now.getTime()) / 60_000));
+  const when = left >= 60 ? `${Math.floor(left / 60)} 小時 ${left % 60} 分鐘後` : `${left} 分鐘後`;
+
+  const lines = [`🔔 ${when}：${event.title}`, '', `🕐 ${formatShortZh(event.startsAt, !event.allDay)}`];
+  if (event.location) lines.push(`📍 ${event.location}`);
+  return lines.join('\n');
 }
 
 /**

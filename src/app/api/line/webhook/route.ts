@@ -263,6 +263,9 @@ async function runCommand(command: Command, now: Date): Promise<string> {
     case 'summary':
       return summaryText(now);
 
+    case 'undo':
+      return undoLastEntry(now);
+
     case 'bills':
       return billsText(now);
 
@@ -432,6 +435,65 @@ async function runCommand(command: Command, now: Date): Promise<string> {
         '傳「說明」看完整用法。',
       ].join('\n');
   }
+}
+
+/** How far back 撤銷 will reach. Long enough to catch a typo, short enough
+ *  that it can never quietly remove something from days ago. */
+const UNDO_WINDOW_HOURS = 6;
+
+/**
+ * Take back the most recent thing recorded, whichever kind it was.
+ *
+ * Bill events are excluded: they mirror a Statement rather than being entries
+ * in their own right, and deleting one would leave the statement pointing at
+ * nothing. Expenses are limited to those recorded from LINE, so a row added on
+ * the web while the phone was in a pocket is not what gets removed.
+ */
+async function undoLastEntry(now: Date): Promise<string> {
+  const since = new Date(now.getTime() - UNDO_WINDOW_HOURS * 60 * 60_000);
+
+  const [expense, todo, event] = await Promise.all([
+    prisma.expense.findFirst({
+      where: { createdAt: { gte: since }, source: 'line' },
+      orderBy: { createdAt: 'desc' },
+      include: { card: { select: { name: true } } },
+    }),
+    prisma.todo.findFirst({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.event.findFirst({
+      where: { createdAt: { gte: since }, category: { not: 'bill' } },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
+
+  const newest = [expense, todo, event]
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+  if (!newest) return `最近 ${UNDO_WINDOW_HOURS} 小時內沒有可以撤銷的記錄。`;
+
+  if (expense && newest === expense) {
+    await prisma.expense.delete({ where: { id: expense.id } });
+    const amount = toNum(expense.amount) ?? 0;
+    const parts = [
+      `${categoryEmoji(expense.category)} ${money(amount)}`,
+      expense.merchant,
+      formatShortZh(expense.spentAt),
+      expense.card?.name,
+    ].filter(Boolean);
+    return `↩️ 已撤銷這筆消費：\n${parts.join(' ｜ ')}`;
+  }
+
+  if (todo && newest === todo) {
+    await prisma.todo.delete({ where: { id: todo.id } });
+    return `↩️ 已撤銷這筆待辦：${todo.title}`;
+  }
+
+  const removed = newest as NonNullable<typeof event>;
+  await prisma.event.delete({ where: { id: removed.id } });
+  return `↩️ 已撤銷這筆行程：${removed.title}\n${formatShortZh(removed.startsAt, !removed.allDay)}`;
 }
 
 async function cardNotFound(hint: string): Promise<string> {
