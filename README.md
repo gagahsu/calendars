@@ -162,7 +162,30 @@ npx vercel
 
 每次推播都會寫一筆 `ReminderLog`，同一件事不會重複通知，手動多打幾次排程端點也安全。
 
-### 7. 安裝到手機
+### 7. 設定 LINE 圖文選單
+
+聊天室下方的六格選單。圖是用程式畫的（`scripts/richmenu-layout.mjs` 定義版面，
+sharp 算圖），所以改按鈕就是改一個檔案再重跑兩個指令，不用開設計軟體：
+
+```bash
+npm run richmenu:image                                          # 產生 public/richmenu.png
+RICHMENU_APP_URL=https://你的網域 npm run richmenu:install       # 上傳並設為預設選單
+```
+
+版面和點擊區共用同一份定義，不會對不準。安裝是冪等的，重跑會先砍掉舊的那個。
+
+| 按鈕 | 行為 |
+| --- | --- |
+| 記帳 | 打開鍵盤並預先填好 `記 `，接著只要打「120 午餐」 |
+| 帳單 / 待辦 / 今天 / 分析 | 送出對應指令 |
+| 網站 | 開啟完整版網頁 |
+
+> 記帳那格用的是 postback + `fillInText`，只有走 API 才做得到；LINE 官方帳號後台
+> 的選單編輯器只支援純文字和連結。需要 LINE 12.6.0 以上。
+>
+> 建立選單打 `api.line.me`，但上傳圖片要打 `api-data.line.me`，兩個 host 不一樣。
+
+### 8. 安裝到手機
 
 用手機瀏覽器開啟網站 → 加到主畫面。
 
@@ -195,8 +218,13 @@ python3 scripts/generate-icons.py
 
 ```
 prisma/schema.prisma          資料模型
-scripts/generate-icons.py     PWA 圖示產生器
+scripts/
+  generate-icons.py           PWA 圖示產生器
+  richmenu-layout.mjs         LINE 圖文選單版面（圖與點擊區共用）
+  generate-richmenu.mjs       選單底圖產生器
+  setup-richmenu.mjs          選單上傳與安裝
 public/
+  richmenu.png                LINE 圖文選單底圖（產生物）
   manifest.webmanifest        PWA manifest
   sw.js                       Service worker
   offline.html                離線頁面

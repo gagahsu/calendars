@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "richmenu:image": "node scripts/generate-richmenu.mjs",
+    "richmenu:install": "node --env-file-if-exists=.env scripts/setup-richmenu.mjs",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "postinstall": "prisma generate"
