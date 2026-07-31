@@ -11,14 +11,22 @@
 const BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
 const ENDPOINT = `${BASE_URL.replace(/\/$/, '')}/chat/completions`;
 
+/**
+ * Free-tier slugs get retired without notice — the previous three fallbacks
+ * had all started answering 404 ("unavailable for free"), which left the chain
+ * with no working link behind the router. Every entry here was verified to
+ * answer and to support `response_format`. Re-check with
+ * `GET /api/v1/models` (pricing.prompt === '0') when one starts failing.
+ */
 const DEFAULT_MODELS = [
   // OpenRouter's own router: picks a free model at random and adapts to the
   // request (e.g. tool use, images). Tried first; the pinned models below
-  // are the fallback if the router endpoint itself has an issue.
+  // are the fallback if the router endpoint itself has an issue, or if the
+  // model it happens to route to answers with nothing usable.
   'openrouter/free',
-  'deepseek/deepseek-chat-v3-0324:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'google/gemma-3-27b-it:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'openai/gpt-oss-20b:free',
+  'google/gemma-4-26b-a4b-it:free',
 ];
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -50,6 +58,13 @@ export class OpenRouterError extends Error {
 type ChatOptions = {
   /** Ask the model for JSON and validate that we got some. */
   json?: boolean;
+  /**
+   * Checked against the parsed JSON before a model's answer is accepted.
+   * Syntactically valid JSON that is missing everything the caller asked for
+   * is a failed answer, not a successful one — without this the first model to
+   * return `{}` ends the chain and the remaining models never get a turn.
+   */
+  validate?: (parsed: unknown) => boolean;
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
@@ -61,7 +76,16 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new OpenRouterError('OPENROUTER_API_KEY 未設定', []);
 
-  const { json = false, temperature = 0.4, maxTokens = 1600, timeoutMs = 45_000 } = options;
+  // Free models are slow and verbose: one observed run took 93s, and a JSON
+  // reply in Chinese burns roughly a token per character, so both of these
+  // used to cut healthy answers off rather than wait for them.
+  const {
+    json = false,
+    validate,
+    temperature = 0.4,
+    maxTokens = 3000,
+    timeoutMs = 60_000,
+  } = options;
   const attempts: Array<{ model: string; error: string }> = [];
 
   for (const model of configuredModels()) {
@@ -101,9 +125,16 @@ export async function chat(messages: ChatMessage[], options: ChatOptions = {}): 
         attempts.push({ model, error: payload.error?.message ?? 'empty completion' });
         continue;
       }
-      if (json && !extractJson(content)) {
-        attempts.push({ model, error: 'response was not valid JSON' });
-        continue;
+      if (json) {
+        const parsed = extractJson(content);
+        if (!parsed) {
+          attempts.push({ model, error: 'response was not valid JSON' });
+          continue;
+        }
+        if (validate && !validate(parsed)) {
+          attempts.push({ model, error: 'JSON had none of the requested fields' });
+          continue;
+        }
       }
       return { content, model };
     } catch (error) {

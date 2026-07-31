@@ -226,21 +226,20 @@ export async function findCardByHint(hint: string): Promise<Card | null> {
 }
 
 /**
- * The statement a bare "帳單 國泰 3200" should apply to: the closest unpaid
- * deadline, falling back to the most recently closed period.
+ * The statement a bare "帳單 國泰 3200" or "已繳 國泰" should apply to: the
+ * oldest one still unpaid.
+ *
+ * Debts are settled oldest first, so an overdue statement always outranks a
+ * later one. The previous version filtered to `dueAt >= today` before ordering,
+ * which did the opposite — with a bill three days overdue and next month's row
+ * already created, "已繳" marked next month as paid and left the overdue one
+ * outstanding. Statements are materialised months ahead, so future rows are
+ * always there to be picked wrongly.
  */
-export async function targetStatementFor(
-  cardId: string,
-  now: Date = new Date(),
-): Promise<Statement | null> {
-  const unpaid = await prisma.statement.findFirst({
-    where: { cardId, paid: false, dueAt: { gte: startOfToday(now) } },
-    orderBy: { dueAt: 'asc' },
-  });
-  if (unpaid) return unpaid;
+export async function targetStatementFor(cardId: string): Promise<Statement | null> {
   return prisma.statement.findFirst({
     where: { cardId, paid: false },
-    orderBy: { dueAt: 'desc' },
+    orderBy: { dueAt: 'asc' },
   });
 }
 

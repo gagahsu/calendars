@@ -214,6 +214,23 @@ const SYSTEM_PROMPT = `你是一位務實的台灣個人理財顧問。使用者
 - 金額一律用新台幣，語氣直接、像朋友給建議，不要客套話。
 - 若資料筆數很少（少於 5 筆），summary 要說明資料不足、建議多記錄，tips 仍給通用但具體的建議。`;
 
+/**
+ * Whether an analysis is worth showing. A model that answers with valid JSON
+ * but none of the fields we asked for is no more useful than no answer at all,
+ * and treating it as a success is what let an empty shell reach the user: the
+ * fallback chain stopped at the first model and the empty result got cached,
+ * so every later request replayed it.
+ *
+ * Shaped to accept both a fresh model response and a stored InsightPayload.
+ */
+function hasUsableAnalysis(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const value = parsed as { summary?: unknown; highlights?: unknown; tips?: unknown };
+  const summary = typeof value.summary === 'string' ? value.summary.trim() : '';
+  if (summary.length < 10) return false;
+  return toStringArray(value.highlights).length > 0 || toTips(value.tips).length > 0;
+}
+
 function fingerprintOf(stats: MonthlyStats): string {
   return `${stats.count}:${stats.total}:${stats.billTotal}:${stats.unpaidBills.length}`;
 }
@@ -232,7 +249,10 @@ export async function getInsight(
 
   if (!force && cached) {
     const data = cached.data as unknown as InsightPayload | null;
-    if (data?.fingerprint === fingerprint) {
+    // An empty analysis cached before this was guarded would otherwise be
+    // served for as long as the numbers held still. Ignoring it here lets the
+    // next request quietly replace it.
+    if (data?.fingerprint === fingerprint && hasUsableAnalysis(data)) {
       return { insight: { ...data, stats }, model: cached.model, cached: true };
     }
   }
@@ -249,7 +269,9 @@ export async function getInsight(
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: JSON.stringify(promptPayload(stats)) },
       ],
-      { json: true, temperature: 0.5 },
+      // Rejecting an unusable answer here is what moves the chain on to the
+      // next model instead of accepting the first thing that parses.
+      { json: true, temperature: 0.5, validate: hasUsableAnalysis },
     );
 
     const parsed = extractJson<{
@@ -259,8 +281,13 @@ export async function getInsight(
       warnings?: unknown;
     }>(result.content);
 
+    // `chat` already applied this, so reaching it means something changed
+    // underneath; the rule-based analysis below is a better answer than a
+    // placeholder either way.
+    if (!hasUsableAnalysis(parsed)) throw new Error('模型回應缺少分析內容');
+
     const insight: InsightPayload = {
-      summary: typeof parsed?.summary === 'string' ? parsed.summary : '（模型未提供總結）',
+      summary: (parsed!.summary as string).trim(),
       highlights: toStringArray(parsed?.highlights).slice(0, 6),
       tips: toTips(parsed?.tips).slice(0, 6),
       warnings: [...ruleWarnings(stats), ...toStringArray(parsed?.warnings)].slice(0, 6),
@@ -293,7 +320,7 @@ export async function getInsight(
     // A rate-limited free model should not blank out the page.
     if (cached) {
       const data = cached.data as unknown as InsightPayload | null;
-      if (data) {
+      if (data && hasUsableAnalysis(data)) {
         return {
           insight: { ...data, stats, warnings: [reason, ...data.warnings].slice(0, 6) },
           model: cached.model,

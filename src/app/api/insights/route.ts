@@ -5,7 +5,7 @@ import { getInsight } from '@/lib/insights';
 import { configuredModels, openRouterConfigured } from '@/lib/openrouter';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /** GET /api/insights?period=YYYY-MM&force=1 */
 export async function GET(request: Request) {

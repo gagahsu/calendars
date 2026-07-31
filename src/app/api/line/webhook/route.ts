@@ -292,7 +292,7 @@ async function runCommand(command: Command, now: Date): Promise<string> {
       if (!card) return await cardNotFound(command.cardHint);
 
       await syncStatements(card);
-      const statement = await targetStatementFor(card.id, now);
+      const statement = await targetStatementFor(card.id);
       if (!statement) return `${card.name} 目前沒有待繳的帳單。`;
 
       await prisma.statement.update({
@@ -313,7 +313,7 @@ async function runCommand(command: Command, now: Date): Promise<string> {
       const card = await findCardByHint(command.cardHint);
       if (!card) return await cardNotFound(command.cardHint);
 
-      const statement = await targetStatementFor(card.id, now);
+      const statement = await targetStatementFor(card.id);
       if (!statement) return `${card.name} 沒有未繳的帳單，不用再繳了 👍`;
 
       await prisma.statement.update({
@@ -345,7 +345,7 @@ async function runCommand(command: Command, now: Date): Promise<string> {
         },
       });
       await syncStatements(card);
-      const next = await targetStatementFor(card.id, now);
+      const next = await targetStatementFor(card.id);
       return [
         `💳 已新增卡片：${card.name}`,
         `每月 ${card.statementDay} 日結帳、次月 ${card.dueDay} 日繳費`,
