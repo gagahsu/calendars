@@ -86,14 +86,10 @@ export function text(body: string, quickReplyLabels?: string[]): LineTextMessage
     text: body.length > 4900 ? `${body.slice(0, 4900)}…` : body,
   };
 
+  // The tap-through to the web app used to live here. The rich menu's 網站
+  // button covers it from every screen rather than only under the last reply,
+  // so keeping both just spent a slot twice (see scripts/richmenu-layout.mjs).
   const items: QuickReplyItem[] = [];
-  // A tap-through to the web app, so recording something fiddlier than a
-  // one-line command (bulk edits, browsing history) doesn't need a command
-  // to be remembered at all.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (appUrl) {
-    items.push({ type: 'action', action: { type: 'uri', label: '🌐 開啟網站', uri: appUrl } });
-  }
   if (quickReplyLabels?.length) {
     items.push(
       ...quickReplyLabels.map((label) => ({
@@ -117,7 +113,13 @@ export function flex(altText: string, contents: unknown): LineFlexMessage {
   return { type: 'flex', altText: altText.slice(0, 400), contents };
 }
 
-export const DEFAULT_QUICK_REPLIES = ['今天', '本週', '帳單', '待辦', '分析', '分類', '說明'];
+/**
+ * Only what the rich menu cannot already reach. 今天／帳單／待辦／分析 and the
+ * web link all have their own cell there, and a row of chips repeating the
+ * menu directly above it is just noise — these three are the commands with
+ * nowhere else to live.
+ */
+export const DEFAULT_QUICK_REPLIES = ['本週', '分類', '說明'];
 
 /** Only the owner's LINE account may drive the bot. */
 export function isOwner(userId: string | undefined): boolean {
