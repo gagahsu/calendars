@@ -9,7 +9,8 @@ import {
   toTaipeiParts,
 } from './date';
 import { billStatusText, syncAllStatements, upcomingBills } from './billing';
-import { pushMessage, lineConfigured, text, DEFAULT_QUICK_REPLIES } from './line';
+import { billActionMessage } from './agenda';
+import { pushMessage, lineConfigured, text, DEFAULT_QUICK_REPLIES, type LineMessage } from './line';
 
 /**
  * The reminder job. Runs twice a day (see vercel.json) and pushes one digest
@@ -18,6 +19,12 @@ import { pushMessage, lineConfigured, text, DEFAULT_QUICK_REPLIES } from './line
  */
 
 export type ReminderSlot = 'morning' | 'evening';
+
+/**
+ * One notification. `extra` rides along in the same push — the bill reminder
+ * uses it to attach the tappable cards behind its text summary.
+ */
+type ReminderMessage = { key: string; body: string; extra?: LineMessage[] };
 
 export type ReminderRun = {
   slot: ReminderSlot;
@@ -43,7 +50,7 @@ export async function runReminders(
     run.errors.push(`syncStatements: ${message(error)}`);
   }
 
-  const jobs: Array<() => Promise<{ key: string; body: string } | null>> = [
+  const jobs: Array<() => Promise<ReminderMessage | null>> = [
     () => billReminder(now),
     () => dayDigest(now, slot),
     () => todoReminder(now, slot),
@@ -63,7 +70,7 @@ export async function runReminders(
           run.errors.push('LINE 未設定，略過推播');
           continue;
         }
-        await pushMessage([text(result.body, DEFAULT_QUICK_REPLIES)]);
+        await pushMessage([text(result.body, DEFAULT_QUICK_REPLIES), ...(result.extra ?? [])]);
         await prisma.reminderLog.create({ data: { key: result.key } });
       }
       run.pushed.push(result.key);
@@ -84,7 +91,7 @@ export async function runReminders(
  * Credit-card deadlines — the main event. A card fires on each of its
  * `remindDaysBefore` offsets, and every day once overdue.
  */
-async function billReminder(now: Date): Promise<{ key: string; body: string } | null> {
+async function billReminder(now: Date): Promise<ReminderMessage | null> {
   const bills = await upcomingBills({ withinDays: 40, now });
   const due = bills.filter(
     (bill) => bill.overdue || bill.card.remindDaysBefore.includes(bill.daysLeft),
@@ -102,12 +109,13 @@ async function billReminder(now: Date): Promise<{ key: string; body: string } | 
     if (bill.card.autoPay) lines.push('   （設定為自動扣繳，請確認餘額足夠）');
   }
   if (total > 0) lines.push('', `合計 ${money(total)}`);
-  lines.push('', '繳完請回覆：已繳 ' + due[0].card.name);
+  lines.push('', '👇 繳完直接點卡片上的按鈕');
 
   // One key per day per set of cards, so changing amounts mid-day does not
   // trigger a second push.
   const key = `bill:${dateKey(now)}:${due.map((b) => b.statement.id).sort().join(',')}`;
-  return { key, body: lines.join('\n') };
+  const cards = billActionMessage(due);
+  return { key, body: lines.join('\n'), extra: cards ? [cards] : undefined };
 }
 
 /** Morning: what is on today. Evening: what is on tomorrow. */

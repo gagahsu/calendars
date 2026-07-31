@@ -43,6 +43,7 @@ type LineEvent = {
   replyToken?: string;
   source?: { userId?: string; type?: string };
   message?: { type: string; text?: string };
+  postback?: { data?: string };
 };
 
 export async function POST(request: Request) {
@@ -99,6 +100,15 @@ async function handleEvent(event: LineEvent): Promise<void> {
     return;
   }
 
+  if (event.type === 'postback' && event.replyToken) {
+    if (!isOwner(userId)) return;
+    const reply = await runPostback(event.postback?.data ?? '', new Date());
+    // The rich menu's 記帳 button is a postback whose only job is to open the
+    // keyboard. Answering it would drop a message into the chat on every tap.
+    if (reply) await replyMessage(event.replyToken, [text(reply, DEFAULT_QUICK_REPLIES)]);
+    return;
+  }
+
   if (event.type !== 'message' || event.message?.type !== 'text' || !event.replyToken) return;
   const body = event.message.text ?? '';
 
@@ -122,6 +132,52 @@ async function handleEvent(event: LineEvent): Promise<void> {
   const reply =
     lines.length > 1 ? await runBatch(lines, now) : await runCommand(parseCommand(body, now), now);
   await replyMessage(event.replyToken, [text(reply, DEFAULT_QUICK_REPLIES)]);
+}
+
+/**
+ * Buttons on the bill reminder cards. Returns null for postbacks that exist
+ * only to drive the UI (the rich menu's keyboard opener), so those stay silent.
+ *
+ * The statement id travels in the button, which is why this never has to work
+ * out which month was meant — the tap settles exactly the bill that was shown.
+ */
+async function runPostback(raw: string, now: Date): Promise<string | null> {
+  const params = new URLSearchParams(raw);
+  const action = params.get('action');
+  if (action !== 'bill_paid' && action !== 'bill_unpaid') return null;
+
+  const id = params.get('id');
+  if (!id) return '這個按鈕已經失效，傳「帳單」重新查詢。';
+
+  const statement = await prisma.statement.findUnique({ where: { id }, include: { card: true } });
+  if (!statement) return '找不到這筆帳單，可能已經被刪除了。';
+
+  const paid = action === 'bill_paid';
+  const label = `${statement.card.name} ${statement.period}`;
+  if (statement.paid === paid) {
+    return paid ? `${label} 帳單已經是已繳狀態了 👍` : `${label} 帳單本來就還沒繳。`;
+  }
+
+  await prisma.statement.update({
+    where: { id },
+    data: paid
+      ? { paid: true, paidAt: now, paidAmount: statement.amount }
+      : { paid: false, paidAt: null, paidAmount: null },
+  });
+  await refreshStatementEvent(id);
+
+  const amount = toNum(statement.amount);
+  const amountText = amount ? money(amount) : '（金額未登記）';
+  if (!paid) {
+    return `↩️ 已改回未繳：${label}\n${amountText}｜期限 ${formatShortZh(statement.dueAt)}`;
+  }
+
+  const remaining = (await upcomingBills({ withinDays: 45, now })).length;
+  return [
+    `✅ 已標記 ${label} 帳單為已繳`,
+    amountText,
+    remaining > 0 ? `還有 ${remaining} 筆未繳帳單，傳「帳單」查看。` : '所有帳單都繳完了 🎉',
+  ].join('\n');
 }
 
 async function runBatch(lines: string[], now: Date): Promise<string> {

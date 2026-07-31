@@ -9,8 +9,9 @@ import {
   startOfTaipeiDay,
   timeKey,
 } from './date';
-import { billStatusText, upcomingBills } from './billing';
+import { billStatusText, upcomingBills, type UpcomingBill } from './billing';
 import { categoryEmoji, categoryLabel } from './categories';
+import { flex, type LineFlexMessage } from './line';
 
 /**
  * Text renderers shared by the LINE bot (on demand) and the cron job (pushed).
@@ -115,6 +116,100 @@ export async function billsText(now: Date): Promise<string> {
   lines.push('', '登記金額：帳單 國泰 3200');
   lines.push('標記已繳：已繳 國泰');
   return lines.join('\n');
+}
+
+/**
+ * The same bills as tappable cards, one bubble each.
+ *
+ * The buttons carry the statement id, so a tap settles exactly the bill that
+ * was shown. Typing 「已繳 玉山」 can only name a card, leaving the code to
+ * guess which of that card's statements was meant — the guess that previously
+ * marked the wrong month paid.
+ */
+export function billActionMessage(bills: UpcomingBill[]): LineFlexMessage | null {
+  // A carousel holds 12 bubbles, and bills arrive most-urgent first.
+  const shown = bills.slice(0, 10);
+  if (shown.length === 0) return null;
+
+  const bubbles = shown.map(billBubble);
+  const alt = shown
+    .map((bill) => {
+      const amount = toNum(bill.statement.amount);
+      return `${bill.card.name} ${amount ? money(amount) : '金額未登記'}（${billStatusText(bill)}）`;
+    })
+    .join('、');
+
+  return flex(
+    `💳 信用卡繳費提醒：${alt}`,
+    bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles },
+  );
+}
+
+function billBubble(bill: UpcomingBill) {
+  const amount = toNum(bill.statement.amount);
+  const urgent = bill.overdue || bill.daysLeft === 0;
+
+  return {
+    type: 'bubble',
+    size: 'kilo',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: [
+        { type: 'text', text: bill.card.name, weight: 'bold', size: 'lg', wrap: true },
+        {
+          type: 'text',
+          text: amount ? money(amount) : '金額尚未登記',
+          size: 'xxl',
+          weight: 'bold',
+          color: amount ? '#333333' : '#AAAAAA',
+        },
+        {
+          type: 'text',
+          text: billStatusText(bill),
+          size: 'sm',
+          color: urgent ? '#E5484D' : '#F5A524',
+          wrap: true,
+        },
+        ...(bill.card.autoPay
+          ? [{ type: 'text', text: '自動扣繳，請確認餘額足夠', size: 'xs', color: '#888888', wrap: true }]
+          : []),
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'horizontal',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#4F63D2',
+          height: 'sm',
+          action: {
+            type: 'postback',
+            label: '✅ 已繳費',
+            // Echoed into the chat so the thread still reads as a record of
+            // what was done, the same as typing the command would.
+            displayText: `已繳 ${bill.card.name}`,
+            data: `action=bill_paid&id=${bill.statement.id}`,
+          },
+        },
+        {
+          type: 'button',
+          style: 'secondary',
+          height: 'sm',
+          action: {
+            type: 'postback',
+            label: '未繳費',
+            displayText: `${bill.card.name} 還沒繳`,
+            data: `action=bill_unpaid&id=${bill.statement.id}`,
+          },
+        },
+      ],
+    },
+  };
 }
 
 /**

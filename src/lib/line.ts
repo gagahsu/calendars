@@ -108,6 +108,15 @@ export function text(body: string, quickReplyLabels?: string[]): LineTextMessage
   return message;
 }
 
+/**
+ * A bubble or carousel. `altText` is what shows in the notification and on
+ * clients that cannot render flex, so it has to stand alone.
+ */
+export function flex(altText: string, contents: unknown): LineFlexMessage {
+  // The API rejects alt text over 400 characters.
+  return { type: 'flex', altText: altText.slice(0, 400), contents };
+}
+
 export const DEFAULT_QUICK_REPLIES = ['今天', '本週', '帳單', '待辦', '分析', '分類', '說明'];
 
 /** Only the owner's LINE account may drive the bot. */
