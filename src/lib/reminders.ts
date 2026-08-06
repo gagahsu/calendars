@@ -250,7 +250,8 @@ async function todoReminder(
 }
 
 /**
- * Fire the per-event reminders that have come due, for /api/cron/events.
+ * Fire the per-event and per-todo reminders that have come due, for
+ * /api/cron/events (the `remindMinutes` on an Event or a Todo).
  *
  * Deliberately not written as a "did this fall inside the last N minutes"
  * window: an external poller can be late, drop a beat, or be reconfigured, and
@@ -279,36 +280,61 @@ export async function runEventReminders(
     where: { startsAt: { gt: now, lte: horizon }, category: { not: 'bill' } },
     orderBy: { startsAt: 'asc' },
   });
-  run.checked = events.length;
+  run.checked += events.length;
 
   for (const event of events) {
     for (const minutes of event.remindMinutes) {
       const fireAt = new Date(event.startsAt.getTime() - minutes * 60_000);
       if (fireAt > now) continue;
+      await fireItemReminder(`event:${event.id}:${minutes}`, eventReminderText(event, now), dryRun, run);
+    }
+  }
 
-      const key = `event:${event.id}:${minutes}`;
-      try {
-        const already = await prisma.reminderLog.findUnique({ where: { key } });
-        if (already) {
-          run.skipped.push(key);
-          continue;
-        }
-        if (!dryRun) {
-          if (!lineConfigured()) {
-            run.errors.push('LINE 未設定，略過推播');
-            continue;
-          }
-          await pushMessage([text(eventReminderText(event, now), DEFAULT_QUICK_REPLIES)]);
-          await prisma.reminderLog.create({ data: { key } });
-        }
-        run.pushed.push(key);
-      } catch (error) {
-        run.errors.push(`${key}: ${message(error)}`);
-      }
+  // Same due-and-not-fired check as events, keyed on the todo instead of a
+  // fixed morning digest slot, so "remind me 2 hours before" means what it says.
+  const todos = await prisma.todo.findMany({
+    where: { done: false, dueAt: { gt: now, lte: horizon } },
+    orderBy: { dueAt: 'asc' },
+  });
+  run.checked += todos.length;
+
+  for (const todo of todos) {
+    if (!todo.dueAt) continue;
+    for (const minutes of todo.remindMinutes) {
+      const fireAt = new Date(todo.dueAt.getTime() - minutes * 60_000);
+      if (fireAt > now) continue;
+      await fireItemReminder(`todo:${todo.id}:${minutes}`, todoReminderText(todo, now), dryRun, run);
     }
   }
 
   return run;
+}
+
+/** Shared send-once-and-record logic for the per-event and per-todo reminders above. */
+async function fireItemReminder(
+  key: string,
+  body: string,
+  dryRun: boolean,
+  run: ReminderRun,
+): Promise<void> {
+  try {
+    const already = await prisma.reminderLog.findUnique({ where: { key } });
+    if (already) {
+      run.skipped.push(key);
+      return;
+    }
+    if (!dryRun) {
+      if (!lineConfigured()) {
+        run.errors.push('LINE 未設定，略過推播');
+        return;
+      }
+      await pushMessage([text(body, DEFAULT_QUICK_REPLIES)]);
+      await prisma.reminderLog.create({ data: { key } });
+    }
+    run.pushed.push(key);
+  } catch (error) {
+    run.errors.push(`${key}: ${message(error)}`);
+  }
 }
 
 function eventReminderText(
@@ -321,6 +347,14 @@ function eventReminderText(
   const lines = [`🔔 ${when}：${event.title}`, '', `🕐 ${formatShortZh(event.startsAt, !event.allDay)}`];
   if (event.location) lines.push(`📍 ${event.location}`);
   return lines.join('\n');
+}
+
+function todoReminderText(todo: { title: string; dueAt: Date | null }, now: Date): string {
+  const left = todo.dueAt ? Math.max(0, Math.round((todo.dueAt.getTime() - now.getTime()) / 60_000)) : 0;
+  const when = left >= 60 ? `${Math.floor(left / 60)} 小時 ${left % 60} 分鐘後` : `${left} 分鐘後`;
+  return [`🔔 ${when}到期：${todo.title}`, '', `🕐 ${todo.dueAt ? formatShortZh(todo.dueAt, true) : ''}`].join(
+    '\n',
+  );
 }
 
 /**

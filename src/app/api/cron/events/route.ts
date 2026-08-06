@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**
- * Per-event reminders — the `remindMinutes` on an Event.
+ * Per-item reminders — the `remindMinutes` on an Event or a Todo.
  *
  * Split out from /api/cron/reminders because it needs to run often. Vercel's
  * Hobby plan caps cron at once a day, so this is meant to be polled by an

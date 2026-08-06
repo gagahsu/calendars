@@ -39,6 +39,8 @@ model Todo {
   priority  Int       @default(2) // 1 high, 2 normal, 3 low
   done      Boolean   @default(false)
   doneAt    DateTime?
+  /// Minutes before dueAt to push a LINE reminder. Empty = no reminder. Ignored without dueAt.
+  remindMinutes Int[] @default([])
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

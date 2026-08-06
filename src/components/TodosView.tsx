@@ -12,6 +12,15 @@ const FILTERS = [
 
 type FilterKey = (typeof FILTERS)[number]['key'];
 
+/** Minutes-before-dueAt presets, same idea as the credit-card day-before chips. */
+const REMIND_PRESETS = [1440, 180, 60, 30, 0];
+const remindLabel = (minutes: number) => {
+  if (minutes === 0) return '到期時';
+  if (minutes % 1440 === 0) return `${minutes / 1440} 天前`;
+  if (minutes % 60 === 0) return `${minutes / 60} 小時前`;
+  return `${minutes} 分鐘前`;
+};
+
 export default function TodosView() {
   const [todos, setTodos] = useState<ApiTodo[]>([]);
   const [filter, setFilter] = useState<FilterKey>('open');
@@ -21,6 +30,7 @@ export default function TodosView() {
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState(2);
+  const [remind, setRemind] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -68,10 +78,12 @@ export default function TodosView() {
         // A due date with no time means "by end of that day".
         dueAt: dueDate ? toIso(dueDate, '23:59') : null,
         priority,
+        remindMinutes: dueDate ? remind : [],
       });
       setTitle('');
       setDueDate('');
       setPriority(2);
+      setRemind([]);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '新增失敗');
@@ -144,6 +156,32 @@ export default function TodosView() {
             重要
           </button>
         </div>
+
+        {dueDate && (
+          <div style={{ marginTop: 10 }}>
+            <span className="field">提醒時間（到期前多久，可多選）</span>
+            <div className="chips">
+              {REMIND_PRESETS.map((minutes) => (
+                <button
+                  type="button"
+                  key={minutes}
+                  className="chip"
+                  data-active={remind.includes(minutes)}
+                  onClick={() =>
+                    setRemind((current) =>
+                      current.includes(minutes)
+                        ? current.filter((value) => value !== minutes)
+                        : [...current, minutes].sort((a, b) => b - a),
+                    )
+                  }
+                >
+                  {remindLabel(minutes)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <button
           className="btn primary block"
           style={{ marginTop: 10 }}
@@ -197,6 +235,9 @@ export default function TodosView() {
                         : left === 1
                           ? '明天到期'
                           : dayLabel(todo.dueAt)}
+                  {todo.dueAt && todo.remindMinutes.length > 0
+                    ? `・🔔 ${remindLabel(todo.remindMinutes[0])}`
+                    : ''}
                 </div>
               </div>
               <button className="btn sm ghost" onClick={() => void remove(todo)}>

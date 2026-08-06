@@ -21,6 +21,7 @@ export type ApiTodo = {
   priority: number;
   done: boolean;
   doneAt: string | null;
+  remindMinutes: number[];
   createdAt: string;
 };
 

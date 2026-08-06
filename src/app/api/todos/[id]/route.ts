@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
-import { bool, date, handle, int, notFound, readJson, str } from '@/lib/api';
+import { bool, date, handle, int, intArray, notFound, readJson, str } from '@/lib/api';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,6 +19,9 @@ export async function PATCH(request: Request, { params }: Params) {
     if ('note' in body) data.note = str(body, 'note', { max: 2000 });
     if ('dueAt' in body) data.dueAt = date(body, 'dueAt');
     if ('priority' in body) data.priority = int(body, 'priority', { min: 1, max: 3 }) ?? 2;
+    if ('remindMinutes' in body) {
+      data.remindMinutes = intArray(body, 'remindMinutes', { min: 0, max: 60 * 24 * 30 }) ?? [];
+    }
     if ('done' in body) {
       const done = bool(body, 'done') ?? false;
       data.done = done;
