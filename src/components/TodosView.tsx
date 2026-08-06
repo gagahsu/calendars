@@ -1,7 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, dayLabel, daysUntil, del, patch, post, toIso, todayKey } from '@/lib/client';
+import {
+  api,
+  dayKey,
+  dayLabel,
+  daysUntil,
+  del,
+  patch,
+  post,
+  remindLabel,
+  timeLabel,
+  toIso,
+  todayKey,
+} from '@/lib/client';
 import type { ApiTodo } from '@/lib/types';
 
 const FILTERS = [
@@ -12,14 +24,14 @@ const FILTERS = [
 
 type FilterKey = (typeof FILTERS)[number]['key'];
 
+/** A due date with no time means "by end of that day". */
+const END_OF_DAY = '23:59';
+
 /** Minutes-before-dueAt presets, same idea as the credit-card day-before chips. */
 const REMIND_PRESETS = [1440, 180, 60, 30, 0];
-const remindLabel = (minutes: number) => {
-  if (minutes === 0) return '到期時';
-  if (minutes % 1440 === 0) return `${minutes / 1440} 天前`;
-  if (minutes % 60 === 0) return `${minutes / 60} 小時前`;
-  return `${minutes} 分鐘前`;
-};
+const label = (minutes: number) => remindLabel(minutes, '到期時');
+
+const tomorrowKey = () => dayKey(new Date(Date.now() + 24 * 60 * 60_000));
 
 export default function TodosView() {
   const [todos, setTodos] = useState<ApiTodo[]>([]);
@@ -29,6 +41,7 @@ export default function TodosView() {
 
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [dueTime, setDueTime] = useState('');
   const [priority, setPriority] = useState(2);
   const [remind, setRemind] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
@@ -67,6 +80,30 @@ export default function TodosView() {
     (todo) => !todo.done && todo.dueAt !== null && daysUntil(todo.dueAt) < 0,
   ).length;
 
+  const dueIso = dueDate ? toIso(dueDate, dueTime || END_OF_DAY) : null;
+
+  /** Clearing the date drops the time and reminders that hung off it. */
+  function pickDate(next: string) {
+    setDueDate(next);
+    if (!next) {
+      setDueTime('');
+      setRemind([]);
+    }
+  }
+
+  /**
+   * The offsets are relative to a deadline the user may not have given a time
+   * to, so "1 小時前" on its own is guesswork. Spell out when each reminder
+   * actually lands instead of making them do the arithmetic.
+   */
+  const remindPreview =
+    dueIso && remind.length > 0
+      ? remind
+          .map((minutes) => new Date(new Date(dueIso).getTime() - minutes * 60_000))
+          .map((at) => `${dayLabel(at, false)} ${timeLabel(at)}`)
+          .join('、')
+      : null;
+
   async function add(formEvent: React.FormEvent) {
     formEvent.preventDefault();
     if (title.trim().length === 0) return;
@@ -75,13 +112,13 @@ export default function TodosView() {
     try {
       await post('/api/todos', {
         title: title.trim(),
-        // A due date with no time means "by end of that day".
-        dueAt: dueDate ? toIso(dueDate, '23:59') : null,
+        dueAt: dueIso,
         priority,
-        remindMinutes: dueDate ? remind : [],
+        remindMinutes: dueIso ? remind : [],
       });
       setTitle('');
       setDueDate('');
+      setDueTime('');
       setPriority(2);
       setRemind([]);
       await load();
@@ -131,21 +168,49 @@ export default function TodosView() {
           placeholder="要做什麼？"
           onChange={(changeEvent) => setTitle(changeEvent.target.value)}
         />
-        <div className="row" style={{ marginTop: 10, gap: 8 }}>
-          <input
-            type="date"
-            className="grow"
-            value={dueDate}
-            min="2000-01-01"
-            onChange={(changeEvent) => setDueDate(changeEvent.target.value)}
-          />
+        <div className="grid2" style={{ marginTop: 10 }}>
+          <div>
+            <label className="field" htmlFor="todo-due-date">
+              到期日（可留空）
+            </label>
+            <input
+              id="todo-due-date"
+              type="date"
+              value={dueDate}
+              min="2000-01-01"
+              onChange={(changeEvent) => pickDate(changeEvent.target.value)}
+            />
+          </div>
+          <div>
+            <label className="field" htmlFor="todo-due-time">
+              時間（留空為當天結束）
+            </label>
+            <input
+              id="todo-due-time"
+              type="time"
+              value={dueTime}
+              disabled={!dueDate}
+              onChange={(changeEvent) => setDueTime(changeEvent.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="chips" style={{ marginTop: 10 }}>
           <button
             type="button"
             className="chip"
             data-active={dueDate === todayKey()}
-            onClick={() => setDueDate(todayKey())}
+            onClick={() => pickDate(dueDate === todayKey() ? '' : todayKey())}
           >
             今天
+          </button>
+          <button
+            type="button"
+            className="chip"
+            data-active={dueDate === tomorrowKey()}
+            onClick={() => pickDate(dueDate === tomorrowKey() ? '' : tomorrowKey())}
+          >
+            明天
           </button>
           <button
             type="button"
@@ -175,10 +240,15 @@ export default function TodosView() {
                     )
                   }
                 >
-                  {remindLabel(minutes)}
+                  {label(minutes)}
                 </button>
               ))}
             </div>
+            {remindPreview && (
+              <p className="tiny faint" style={{ marginTop: 6 }}>
+                🔔 將於 {remindPreview} 提醒
+              </p>
+            )}
           </div>
         )}
 
@@ -210,6 +280,9 @@ export default function TodosView() {
         {!loading && visible.length === 0 && <div className="empty">沒有符合的待辦</div>}
         {visible.map((todo) => {
           const left = todo.dueAt ? daysUntil(todo.dueAt) : null;
+          // 23:59 is the "no time given" marker, so it is noise on the list.
+          const at =
+            todo.dueAt && timeLabel(todo.dueAt) !== END_OF_DAY ? ` ${timeLabel(todo.dueAt)}` : '';
           return (
             <div className={`item ${todo.done ? 'done' : ''}`} key={todo.id}>
               <button
@@ -229,14 +302,14 @@ export default function TodosView() {
                   {todo.dueAt === null
                     ? '沒有期限'
                     : left !== null && left < 0
-                      ? `逾期 ${Math.abs(left)} 天（${dayLabel(todo.dueAt)}）`
+                      ? `逾期 ${Math.abs(left)} 天（${dayLabel(todo.dueAt)}${at}）`
                       : left === 0
-                        ? '今天到期'
+                        ? `今天到期${at}`
                         : left === 1
-                          ? '明天到期'
-                          : dayLabel(todo.dueAt)}
+                          ? `明天到期${at}`
+                          : `${dayLabel(todo.dueAt)}${at}`}
                   {todo.dueAt && todo.remindMinutes.length > 0
-                    ? `・🔔 ${remindLabel(todo.remindMinutes[0])}`
+                    ? `・🔔 ${label(todo.remindMinutes[0])}`
                     : ''}
                 </div>
               </div>

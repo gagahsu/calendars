@@ -9,6 +9,7 @@ import {
   money,
   monthKey,
   post,
+  remindLabel,
   shiftMonth,
   timeLabel,
   toIso,
@@ -89,14 +90,20 @@ export default function CalendarView() {
   const monthSpend = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const urgentBills = bills.filter((bill) => bill.overdue || bill.daysLeft <= 7);
 
-  async function addEvent(input: { title: string; date: string; time: string; location: string }) {
+  async function addEvent(input: {
+    title: string;
+    date: string;
+    time: string;
+    location: string;
+    remindMinutes: number[];
+  }) {
     const allDay = input.time === '';
     await post('/api/events', {
       title: input.title,
-      startsAt: toIso(input.date, input.time || '09:00'),
+      startsAt: toIso(input.date, input.time || ALL_DAY_TIME),
       allDay,
       location: input.location || null,
-      remindMinutes: allDay ? [] : [30],
+      remindMinutes: input.remindMinutes,
     });
     setComposing(false);
     await load();
@@ -244,7 +251,7 @@ export default function CalendarView() {
                   <div className="meta">
                     {event.allDay ? '全天' : timeLabel(event.startsAt)}
                     {event.location ? `・📍 ${event.location}` : ''}
-                    {event.remindMinutes.length > 0 ? `・🔔 前 ${event.remindMinutes[0]} 分鐘` : ''}
+                    {event.remindMinutes.length > 0 ? `・🔔 ${remindLabel(event.remindMinutes[0])}` : ''}
                   </div>
                 </div>
                 {event.category !== 'bill' && (
@@ -306,6 +313,12 @@ export default function CalendarView() {
   );
 }
 
+/** An event with no time still needs an hour to hang its reminders off. */
+const ALL_DAY_TIME = '09:00';
+
+/** Minutes before startsAt, offered as chips. Mirrors the card reminder picker. */
+const REMIND_PRESETS = [1440, 180, 60, 30, 10, 0];
+
 function EventSheet({
   defaultDate,
   onClose,
@@ -313,12 +326,19 @@ function EventSheet({
 }: {
   defaultDate: string;
   onClose: () => void;
-  onSubmit: (input: { title: string; date: string; time: string; location: string }) => Promise<void>;
+  onSubmit: (input: {
+    title: string;
+    date: string;
+    time: string;
+    location: string;
+    remindMinutes: number[];
+  }) => Promise<void>;
 }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState('');
   const [location, setLocation] = useState('');
+  const [remind, setRemind] = useState<number[]>([30]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -327,7 +347,7 @@ function EventSheet({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({ title, date, time, location });
+      await onSubmit({ title, date, time, location, remindMinutes: remind });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '新增失敗');
       setBusy(false);
@@ -389,6 +409,34 @@ function EventSheet({
             value={location}
             onChange={(changeEvent) => setLocation(changeEvent.target.value)}
           />
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <span className="field">提醒時間（開始前多久，可多選）</span>
+          <div className="chips">
+            {REMIND_PRESETS.map((minutes) => (
+              <button
+                type="button"
+                key={minutes}
+                className="chip"
+                data-active={remind.includes(minutes)}
+                onClick={() =>
+                  setRemind((current) =>
+                    current.includes(minutes)
+                      ? current.filter((value) => value !== minutes)
+                      : [...current, minutes].sort((a, b) => b - a),
+                  )
+                }
+              >
+                {remindLabel(minutes)}
+              </button>
+            ))}
+          </div>
+          {time === '' && remind.length > 0 && (
+            <p className="tiny faint" style={{ marginTop: 6 }}>
+              全天行程以當天 {ALL_DAY_TIME} 為基準計算提醒時間
+            </p>
+          )}
         </div>
 
         {error && (

@@ -96,6 +96,17 @@ export function shiftMonth(period: string, delta: number): string {
   return `${Math.floor(zero / 12)}-${String((zero % 12) + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Label for one `remindMinutes` offset. `atTime` names the zero case, which
+ * reads differently for a scheduled event ("準時") than for a deadline ("到期時").
+ */
+export function remindLabel(minutes: number, atTime = '準時'): string {
+  if (minutes === 0) return atTime;
+  if (minutes % 1440 === 0) return `${minutes / 1440} 天前`;
+  if (minutes % 60 === 0) return `${minutes / 60} 小時前`;
+  return `${minutes} 分鐘前`;
+}
+
 export function daysUntil(input: Date | string): number {
   const target = new Date(typeof input === 'string' ? input : input.getTime());
   const startOf = (d: Date) =>

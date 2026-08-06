@@ -306,6 +306,13 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 label.field {
   display: block;
   font-size: 0.76rem;
