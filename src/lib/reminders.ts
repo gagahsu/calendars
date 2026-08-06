@@ -3,9 +3,9 @@ import {
   addDays,
   dateKey,
   daysBetween,
+  eventWhen,
   formatShortZh,
   startOfTaipeiDay,
-  timeKey,
   toTaipeiParts,
 } from './date';
 import { billStatusText, refreshStatementEvent, syncAllStatements, upcomingBills } from './billing';
@@ -219,7 +219,7 @@ async function dayDigest(
   const heading = slot === 'morning' ? '☀️ 今天的行程' : '🌙 明天的行程';
   const lines = [`${heading}（${formatShortZh(target)}）`, ''];
   for (const event of events) {
-    lines.push(`・${event.allDay ? '全天' : timeKey(event.startsAt)} ${event.title}`);
+    lines.push(`・${eventWhen(event)} ${event.title}`);
     if (event.location) lines.push(`   📍 ${event.location}`);
   }
   return { key: `day:${slot}:${dateKey(target)}`, body: lines.join('\n') };

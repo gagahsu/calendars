@@ -94,6 +94,7 @@ export default function CalendarView() {
     title: string;
     date: string;
     time: string;
+    endTime: string;
     location: string;
     remindMinutes: number[];
   }) {
@@ -101,6 +102,8 @@ export default function CalendarView() {
     await post('/api/events', {
       title: input.title,
       startsAt: toIso(input.date, input.time || ALL_DAY_TIME),
+      // Same day by construction: the sheet rejects an end at or before the start.
+      endsAt: !allDay && input.endTime ? toIso(input.date, input.endTime) : null,
       allDay,
       location: input.location || null,
       remindMinutes: input.remindMinutes,
@@ -249,7 +252,11 @@ export default function CalendarView() {
                     {event.title}
                   </div>
                   <div className="meta">
-                    {event.allDay ? '全天' : timeLabel(event.startsAt)}
+                    {event.allDay
+                      ? '全天'
+                      : `${timeLabel(event.startsAt)}${
+                          event.endsAt ? `–${timeLabel(event.endsAt)}` : ''
+                        }`}
                     {event.location ? `・📍 ${event.location}` : ''}
                     {event.remindMinutes.length > 0 ? `・🔔 ${remindLabel(event.remindMinutes[0])}` : ''}
                   </div>
@@ -330,6 +337,7 @@ function EventSheet({
     title: string;
     date: string;
     time: string;
+    endTime: string;
     location: string;
     remindMinutes: number[];
   }) => Promise<void>;
@@ -337,17 +345,22 @@ function EventSheet({
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [location, setLocation] = useState('');
   const [remind, setRemind] = useState<number[]>([30]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Caught here rather than on submit so the button explains itself while typing.
+  const badRange = time !== '' && endTime !== '' && endTime <= time;
+
   async function submit(formEvent: React.FormEvent) {
     formEvent.preventDefault();
+    if (badRange) return;
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({ title, date, time, location, remindMinutes: remind });
+      await onSubmit({ title, date, time, endTime, location, remindMinutes: remind });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '新增失敗');
       setBusy(false);
@@ -375,27 +388,44 @@ function EventSheet({
           onChange={(changeEvent) => setTitle(changeEvent.target.value)}
         />
 
+        <div style={{ marginTop: 10 }}>
+          <label className="field" htmlFor="event-date">
+            日期
+          </label>
+          <input
+            id="event-date"
+            type="date"
+            value={date}
+            onChange={(changeEvent) => setDate(changeEvent.target.value)}
+          />
+        </div>
+
         <div className="grid2" style={{ marginTop: 10 }}>
           <div>
-            <label className="field" htmlFor="event-date">
-              日期
-            </label>
-            <input
-              id="event-date"
-              type="date"
-              value={date}
-              onChange={(changeEvent) => setDate(changeEvent.target.value)}
-            />
-          </div>
-          <div>
             <label className="field" htmlFor="event-time">
-              時間（留空為全天）
+              開始時間（留空為全天）
             </label>
             <input
               id="event-time"
               type="time"
               value={time}
-              onChange={(changeEvent) => setTime(changeEvent.target.value)}
+              onChange={(changeEvent) => {
+                setTime(changeEvent.target.value);
+                // An all-day event has no span to end, so drop a stale end time.
+                if (!changeEvent.target.value) setEndTime('');
+              }}
+            />
+          </div>
+          <div>
+            <label className="field" htmlFor="event-end-time">
+              結束時間（可留空）
+            </label>
+            <input
+              id="event-end-time"
+              type="time"
+              value={endTime}
+              disabled={time === ''}
+              onChange={(changeEvent) => setEndTime(changeEvent.target.value)}
             />
           </div>
         </div>
@@ -439,6 +469,12 @@ function EventSheet({
           )}
         </div>
 
+        {badRange && (
+          <div className="alert danger" style={{ marginTop: 10 }}>
+            結束時間必須晚於開始時間
+          </div>
+        )}
+
         {error && (
           <div className="alert danger" style={{ marginTop: 10 }}>
             {error}
@@ -452,7 +488,7 @@ function EventSheet({
           <button
             type="submit"
             className="btn primary grow"
-            disabled={busy || title.trim().length === 0}
+            disabled={busy || badRange || title.trim().length === 0}
           >
             {busy ? <span className="spinner" /> : '新增'}
           </button>

@@ -3,11 +3,11 @@ import {
   addDays,
   dateKey,
   daysBetween,
+  eventWhen,
   formatShortZh,
   periodKey,
   periodRange,
   startOfTaipeiDay,
-  timeKey,
 } from './date';
 import { billStatusText, upcomingBills, type UpcomingBill } from './billing';
 import { categoryEmoji, categoryLabel } from './categories';
@@ -41,7 +41,7 @@ export async function dayAgendaText(day: Date): Promise<string> {
     lines.push('・沒有安排');
   } else {
     for (const event of events) {
-      const when = event.allDay ? '全天' : timeKey(event.startsAt);
+      const when = eventWhen(event);
       const mark = event.category === 'bill' ? '💳' : '・';
       lines.push(`${mark} ${when} ${event.title}`);
     }
@@ -76,7 +76,7 @@ export async function weekAgendaText(now: Date): Promise<string> {
   const byDay = new Map<string, string[]>();
   for (const event of events) {
     const key = dateKey(event.startsAt);
-    const when = event.allDay ? '全天' : timeKey(event.startsAt);
+    const when = eventWhen(event);
     const mark = event.category === 'bill' ? '💳' : '・';
     push(byDay, key, `${mark} ${when} ${event.title}`);
   }

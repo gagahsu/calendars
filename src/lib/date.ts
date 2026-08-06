@@ -60,6 +60,17 @@ export function timeKey(date: Date): string {
   return `${pad(p.hour)}:${pad(p.minute)}`;
 }
 
+/** When a calendar entry runs: `全天`, `14:00`, or `14:00–15:00`. */
+export function eventWhen(event: {
+  allDay: boolean;
+  startsAt: Date;
+  endsAt: Date | null;
+}): string {
+  if (event.allDay) return '全天';
+  const from = timeKey(event.startsAt);
+  return event.endsAt ? `${from}–${timeKey(event.endsAt)}` : from;
+}
+
 export function parseDateKey(key: string): { year: number; month: number; day: number } | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (!m) return null;

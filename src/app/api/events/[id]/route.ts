@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
-import { bool, date, handle, intArray, notFound, readJson, str } from '@/lib/api';
+import { badRequest, bool, date, handle, intArray, notFound, readJson, str } from '@/lib/api';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -25,6 +25,11 @@ export async function PATCH(request: Request, { params }: Params) {
     if ('remindMinutes' in body) {
       data.remindMinutes = intArray(body, 'remindMinutes', { min: 0, max: 60 * 24 * 30 }) ?? [];
     }
+
+    // A partial update can move either end, so check the pair that would result.
+    const startsAt = (data.startsAt as Date | undefined) ?? existing.startsAt;
+    const endsAt = 'endsAt' in data ? (data.endsAt as Date | null) : existing.endsAt;
+    if (endsAt && endsAt <= startsAt) badRequest('結束時間必須晚於開始時間');
 
     const event = await prisma.event.update({ where: { id }, data });
     return { event };

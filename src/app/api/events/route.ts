@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
-import { bool, date, handle, intArray, readJson, str } from '@/lib/api';
+import { badRequest, bool, date, handle, intArray, readJson, str } from '@/lib/api';
 import { periodRange, parsePeriodKey, addMonths } from '@/lib/date';
 
 export const dynamic = 'force-dynamic';
@@ -51,13 +51,17 @@ export async function POST(request: Request) {
 
   return handle(async () => {
     const body = await readJson(request);
+    const startsAt = date(body, 'startsAt', { required: true })!;
+    const endsAt = date(body, 'endsAt');
+    if (endsAt && endsAt <= startsAt) badRequest('結束時間必須晚於開始時間');
+
     const event = await prisma.event.create({
       data: {
         title: str(body, 'title', { required: true, max: 200 })!,
         note: str(body, 'note', { max: 2000 }),
         location: str(body, 'location', { max: 200 }),
-        startsAt: date(body, 'startsAt', { required: true })!,
-        endsAt: date(body, 'endsAt'),
+        startsAt,
+        endsAt,
         allDay: bool(body, 'allDay') ?? false,
         category: str(body, 'category', { max: 40 }) ?? 'general',
         remindMinutes: intArray(body, 'remindMinutes', { min: 0, max: 60 * 24 * 30 }) ?? [],
